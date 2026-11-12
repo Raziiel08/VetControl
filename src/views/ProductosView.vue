@@ -30,11 +30,67 @@ const mensaje = ref('')
 const errorMensaje = ref('')
 const cerrandoSesion = ref(false)
 
+// Rol y permisos
+const rolActual = ref('')
+const ETIQUETAS_ROL = {
+  admin_veterinaria: 'Administrador/a',
+  veterinario: 'Veterinario/a',
+}
+const etiquetaRol = computed(() => ETIQUETAS_ROL[rolActual.value] || 'Sin rol asignado')
+const puedeEliminar = computed(() => rolActual.value === 'admin_veterinaria')
+
+// Búsqueda, filtro y orden del listado
+const busqueda = ref('')
+const filtroEstado = ref('todos')
+const orden = ref('recientes')
+
+const productosFiltrados = computed(() => {
+  const texto = busqueda.value.trim().toLowerCase()
+
+  const lista = productos.value.filter((p) => {
+    if (filtroEstado.value === 'activos' && !p.activo) return false
+    if (filtroEstado.value === 'inactivos' && p.activo) return false
+    if (texto && !p.nombre.toLowerCase().includes(texto)) return false
+    return true
+  })
+
+  const copia = [...lista]
+  switch (orden.value) {
+    case 'nombre':
+      copia.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+      break
+    case 'precio':
+      copia.sort((a, b) => Number(a.precio) - Number(b.precio))
+      break
+    case 'stock':
+      copia.sort((a, b) => a.stock - b.stock)
+      break
+    case 'estado':
+      copia.sort((a, b) => Number(b.activo) - Number(a.activo))
+      break
+    default:
+      copia.sort((a, b) => new Date(b.creado_en) - new Date(a.creado_en))
+  }
+  return copia
+})
+
 async function cargarUsuario() {
   const { data: { user } } = await supabase.auth.getUser()
   if (user) {
     usuarioEmail.value = user.email
   }
+
+  // El rol se lee de la base, no de lo que muestra la pantalla
+  const { data: rol, error } = await supabase.rpc('obtener_mi_rol')
+  if (!error) rolActual.value = rol || ''
+}
+
+// Traduce errores técnicos de Supabase a un mensaje entendible
+function traducirError(mensajeOriginal = '') {
+  if (mensajeOriginal.includes('row-level security')) {
+    return 'No tenés permiso para hacer esta acción.'
+  }
+  return mensajeOriginal || 'Ocurrió un error inesperado. Intentá nuevamente.'
 }
 
 async function cerrarSesion() {
@@ -60,7 +116,7 @@ async function cargarProductos(limpiarMensaje = true) {
     .order('creado_en', { ascending: false })
 
   if (error) {
-    errorMensaje.value = error.message
+    errorMensaje.value = traducirError(error.message)
   } else {
     productos.value = data || []
   }
@@ -126,6 +182,17 @@ async function subirImagen() {
   }
 }
 
+// Devuelve el id de la veterinaria a la que pertenece el usuario logueado
+// (se obtiene de su perfil, nunca del formulario).
+async function obtenerVeterinariaId() {
+  const { data, error } = await supabase.rpc('obtener_mi_veterinaria_id')
+  if (error) throw error
+  if (!data) {
+    throw new Error('Tu cuenta no está asociada a ninguna veterinaria.')
+  }
+  return data
+}
+
 async function guardarProducto() {
   errorMensaje.value = ''
   mensaje.value = ''
@@ -154,6 +221,12 @@ async function guardarProducto() {
   let nuevaImagen
 
   try {
+    // Se resuelve antes de subir la imagen para no dejar archivos huérfanos
+    // si la cuenta no tiene veterinaria asociada.
+    const veterinariaId = productoEditandoId.value
+      ? null
+      : await obtenerVeterinariaId()
+
     nuevaImagen = await subirImagen()
 
     const datosProducto = {
@@ -169,12 +242,21 @@ async function guardarProducto() {
     let error
 
     if (productoEditandoId.value) {
-      ;({ error } = await supabase
+      const { data: filasEditadas, error: errorEdicion } = await supabase
         .from('productos')
         .update(datosProducto)
-        .eq('id', productoEditandoId.value))
+        .eq('id', productoEditandoId.value)
+        .select('id')
+
+      error = errorEdicion
+      // Si la base no devuelve filas, la política no permitió el cambio
+      if (!error && !filasEditadas?.length) {
+        error = { message: 'No tenés permiso para modificar este producto.' }
+      }
     } else {
-      ;({ error } = await supabase.from('productos').insert(datosProducto))
+      ;({ error } = await supabase
+        .from('productos')
+        .insert({ ...datosProducto, veterinaria_id: veterinariaId }))
     }
 
     if (error) {
@@ -201,7 +283,7 @@ async function guardarProducto() {
     limpiarFormulario()
     await cargarProductos(false)
   } catch (error) {
-    errorMensaje.value = error.message
+    errorMensaje.value = traducirError(error.message)
   } finally {
     cargando.value = false
   }
@@ -232,13 +314,21 @@ async function eliminarProducto(producto) {
   errorMensaje.value = ''
   mensaje.value = ''
 
-  const { error } = await supabase
+  const { data: filasBorradas, error } = await supabase
     .from('productos')
     .delete()
     .eq('id', producto.id)
+    .select('id')
 
   if (error) {
-    errorMensaje.value = error.message
+    errorMensaje.value = traducirError(error.message)
+    cargando.value = false
+    return
+  }
+
+  // Si no se borró ninguna fila, la política no lo permitió (por ejemplo, un veterinario)
+  if (!filasBorradas?.length) {
+    errorMensaje.value = 'No tenés permiso para eliminar productos.'
     cargando.value = false
     return
   }
@@ -307,7 +397,7 @@ onMounted(() => {
 
       <div class="top-actions">
         <div class="avatar">{{ usuarioInicial }}</div>
-        <span class="user-name">{{ usuarioEmail || 'Usuario' }} <small>Administrador/a</small></span>
+        <span class="user-name">{{ usuarioEmail || 'Usuario' }} <small>{{ etiquetaRol }}</small></span>
         <button class="logout-btn" :disabled="cerrandoSesion" @click="cerrarSesion">
           {{ cerrandoSesion ? '...' : '↪ Salir' }}
         </button>
@@ -424,11 +514,33 @@ onMounted(() => {
               <h2>Listado de productos</h2>
             </div>
             <div class="list-actions">
-              <span class="count-pill">{{ productos.length }} productos</span>
+              <span class="count-pill">{{ productosFiltrados.length }} de {{ productos.length }}</span>
               <button class="outline-button refresh-btn" :disabled="cargando" @click="cargarProductos">
                 ⟳ Actualizar
               </button>
             </div>
+          </div>
+
+          <div v-if="productos.length" class="toolbar">
+            <input
+              v-model="busqueda"
+              type="search"
+              class="toolbar-search"
+              placeholder="Buscar por nombre..."
+              aria-label="Buscar producto por nombre"
+            />
+            <select v-model="filtroEstado" class="toolbar-select" aria-label="Filtrar por estado">
+              <option value="todos">Todos los estados</option>
+              <option value="activos">Solo activos</option>
+              <option value="inactivos">Solo inactivos</option>
+            </select>
+            <select v-model="orden" class="toolbar-select" aria-label="Ordenar por">
+              <option value="recientes">Más recientes</option>
+              <option value="nombre">Nombre (A-Z)</option>
+              <option value="precio">Precio (menor a mayor)</option>
+              <option value="stock">Stock (menor a mayor)</option>
+              <option value="estado">Estado (activos primero)</option>
+            </select>
           </div>
 
           <div v-if="cargando && !productos.length" class="empty-state">
@@ -439,6 +551,10 @@ onMounted(() => {
             <span class="empty-icon">📦</span>
             <p>Todavía no agregaste ningún producto.</p>
             <small class="muted">Completá el formulario para registrar medicamentos o alimentos.</small>
+          </div>
+
+          <div v-else-if="!productosFiltrados.length" class="empty-state">
+            <p>No hay productos que coincidan con la búsqueda o el filtro.</p>
           </div>
 
           <div v-else class="table-responsive">
@@ -454,7 +570,7 @@ onMounted(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="prod in productos" :key="prod.id">
+                <tr v-for="prod in productosFiltrados" :key="prod.id">
                   <td>
                     <img
                       v-if="prod.imagen_url"
@@ -484,7 +600,7 @@ onMounted(() => {
                       <button class="action-btn edit" @click="editarProducto(prod)" title="Editar producto">
                         ✎ Editar
                       </button>
-                      <button class="action-btn delete" @click="eliminarProducto(prod)" title="Eliminar producto">
+                      <button v-if="puedeEliminar" class="action-btn delete" @click="eliminarProducto(prod)" title="Eliminar producto">
                         ✕ Eliminar
                       </button>
                     </div>
@@ -849,6 +965,34 @@ onMounted(() => {
 
 .action-btn.delete:hover {
   background: #f7dada;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.toolbar-search {
+  flex: 1 1 220px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--ink);
+}
+
+.toolbar-select {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--ink);
 }
 
 @media (max-width: 900px) {

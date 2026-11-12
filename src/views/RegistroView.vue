@@ -5,6 +5,7 @@ import { supabase } from "@/supabase";
 import { validarEmail, validarPassword } from "@/utils/valicom";
 
 const router = useRouter();
+const nombreVeterinaria = ref("");
 const correo = ref("");
 const clave = ref("");
 const confirmarClave = ref("");
@@ -15,6 +16,11 @@ const registroExitoso = ref(false);
 async function registrarse() {
   mensaje.value = "";
   registroExitoso.value = false;
+
+  if (nombreVeterinaria.value.trim().length < 3) {
+    mensaje.value = "Ingresá el nombre de tu veterinaria (mínimo 3 caracteres)";
+    return;
+  }
 
   const validacionEmail = validarEmail(correo.value);
   if (!validacionEmail.valido) {
@@ -39,6 +45,8 @@ async function registrarse() {
     const { data, error } = await supabase.auth.signUp({
       email: validacionEmail.email,
       password: clave.value,
+      // Un trigger en la base crea la veterinaria y el perfil con este nombre
+      options: { data: { nombre_veterinaria: nombreVeterinaria.value.trim() } },
     });
 
     if (error) throw error;
@@ -86,6 +94,17 @@ async function registrarse() {
       </p>
 
       <form @submit.prevent="registrarse">
+        <label>
+          Nombre de la veterinaria
+          <input
+            type="text"
+            v-model="nombreVeterinaria"
+            required
+            maxlength="120"
+            placeholder="Ej: Veterinaria San Roque"
+          />
+        </label>
+
         <label>
           Correo electrónico
           <input
