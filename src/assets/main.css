@@ -19,3 +19,95 @@ button,input,select { font:inherit; } button { border:0; cursor:pointer; color:i
 .toast-message { position:fixed; z-index:10; right:25px; bottom:25px; padding:12px 17px; color:#fff; border-radius:9px; background:var(--green-dark); box-shadow:0 5px 20px #1b5e3a30; font-size:12px; font-weight:700; }.toast-enter-active,.toast-leave-active { transition:.25s ease; }.toast-enter-from,.toast-leave-to { opacity:0; transform:translateY(10px); }
 @media (max-width:850px) { .topbar { height:64px; padding:0 20px; }.topbar .brand small,.user-name,.top-actions .icon-button { display:none; }.mode-switch button { padding:7px 9px; font-size:10px; }.admin-layout,.client-layout { min-height:calc(100vh - 64px); }.sidebar,.client-rail { display:none; }.mobile-page-nav,.client-mobile-header { display:flex; align-items:center; justify-content:space-between; height:48px; padding:0 20px; color:var(--green-dark); background:#fff; border-bottom:1px solid var(--line); }.mobile-page-nav span { font-weight:800; }.mobile-page-nav button,.client-mobile-header>button:last-child { font-size:19px; }.page-content,.client-page { padding:27px 22px 50px; }.metric-row { gap:9px; }.metric-card { min-height:87px; padding:11px; }.metric-card em { display:none; }.content-grid,.client-columns { grid-template-columns:1fr; }.alerts-panel { display:none; }.client-page { padding-top:22px; }.client-mobile-header { display:flex; }.settings-grid,.client-cards { grid-template-columns:1fr; } }
 @media (max-width:560px) { .topbar { padding:0 14px; }.mode-switch { margin-left:auto; margin-right:10px; }.mode-switch button { padding:7px 6px; font-size:9px; }.page-heading { align-items:flex-start; flex-direction:column; gap:14px; margin-bottom:20px; }.page-heading .primary-button { width:100%; }.page-heading h1,.client-page h1 { font-size:25px; }.metric-row { grid-template-columns:1fr 1fr; }.metric-card:last-child { display:none; }.metric-card strong { font-size:19px; }.schedule-panel { padding:17px 14px 12px; }.appointment-row { grid-template-columns:39px 3px minmax(0,1fr) auto; gap:8px; }.appointment-row .row-menu { display:none; }.appointment-row .status { padding:3px 5px; font-size:9px; }.table-header { display:none; }.pet-row { grid-template-columns:1fr auto auto; padding:14px; }.pet-row>span:nth-child(2),.pet-row>span:nth-child(3) { display:none; }.toolbar { flex-direction:column; }.search { max-width:none; }.pet-cards,.history-grid { grid-template-columns:1fr; }.welcome-banner { min-height:145px; margin-bottom:27px; padding:22px; }.welcome-banner h1 { font-size:22px; }.welcome-banner p:not(.eyebrow) { max-width:210px; font-size:11px; }.banner-mark { font-size:63px; }.client-heading { align-items:flex-start; }.client-heading .outline-button { width:100%; }.pet-profile-header { flex-wrap:wrap; }.pet-profile-header .primary-button { width:100%; margin-left:0; }.history-tabs { gap:14px; overflow-x:auto; }.next-appointment { align-items:flex-start; }.quick-actions { grid-template-columns:1fr 1fr; }.consultation-row { grid-template-columns:35px 1fr auto; gap:10px; }.consultation-row>small { grid-column:2; }.consultation-row>.text-button { grid-column:3; grid-row:1/span 2; }.consultation-row .status { display:none; }.booking-modal { padding:26px 20px; }.modal-actions .primary-button,.modal-actions .outline-button { flex:1; }.toast-message { right:15px; bottom:15px; left:15px; text-align:center; } }
+
+
+/* ==========================================================================
+   Iconos SVG (lucide-vue-next)
+   Antes los iconos eran glifos de texto (cruces, lupa, reloj, candado, ...)
+   y el tamaño salía del font-size del contenedor. Los SVG heredan ese mismo
+   tamaño con 1em, así que todas las reglas de arriba siguen aplicando.
+   ========================================================================== */
+svg.lucide {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  flex-shrink: 0;
+  stroke-width: 2;
+}
+.brand-mark svg { width: .85em; height: .85em; stroke-width: 2.5; }
+.banner-mark svg { width: .7em; height: .7em; }
+.help-icon svg { width: 14px; height: 14px; }
+.service-option > span svg { width: 17px; height: 17px; }
+.empty-icon svg { display: block; margin: 0 auto; }
+
+/* --------------------------------------------------------------------------
+   Formularios de los modales del panel (turnos, mascotas, clientes, etc.)
+   Se agregan acá para que todos los paneles compartan el mismo estilo.
+   -------------------------------------------------------------------------- */
+.modal-form { display: grid; gap: 13px; margin-top: 18px; }
+.modal-form label { display: block; color: var(--muted); font-size: 11px; font-weight: 700; }
+.modal-form input,
+.modal-form select,
+.modal-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: 0;
+  color: var(--ink);
+  background: #fbfcfb;
+  font-size: 12px;
+  font-family: inherit;
+}
+.modal-form input:focus,
+.modal-form select:focus,
+.modal-form textarea:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(91, 174, 74, .12);
+}
+.modal-form .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.modal-error { color: #ae5757; background: #fbeaea; padding: 9px 12px; border-radius: 7px; font-size: 11px; font-weight: 700; }
+.modal-note { color: var(--muted); background: #f7faf6; border: 1px dashed var(--line); padding: 9px 12px; border-radius: 7px; font-size: 11px; }
+.empty-state { text-align: center; padding: 44px 20px; color: var(--muted); }
+.empty-state .empty-icon { font-size: 34px; display: block; margin-bottom: 10px; color: var(--green); }
+.empty-state strong { display: block; color: var(--green-dark); font-size: 13px; margin-bottom: 5px; }
+.empty-state p { font-size: 12px; }
+
+/* Cajón de navegación móvil y menú de cuenta */
+.drawer-backdrop { position: fixed; z-index: 8; inset: 0; display: flex; background: #143b2780; }
+.sidebar.drawer,
+.client-rail.drawer { position: relative; width: min(280px, 84vw); height: 100%; overflow-y: auto; box-shadow: 12px 0 40px #143b2730; }
+.drawer-close { position: absolute; top: 14px; right: 14px; color: var(--muted); font-size: 20px; }
+.drawer-close svg { width: 18px; height: 18px; }
+.account-popover {
+  position: absolute;
+  z-index: 7;
+  top: 58px;
+  right: 22px;
+  display: grid;
+  gap: 4px;
+  min-width: 210px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 32px #143b2725;
+}
+.account-popover strong { color: var(--green-dark); font-size: 11px; word-break: break-all; }
+.account-popover small { color: var(--muted); font-size: 10px; }
+.account-popover button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 9px;
+  border-top: 1px solid #eef1ee;
+  color: #ae5757;
+  font-size: 11px;
+  font-weight: 700;
+}
+.account-popover svg { width: 14px; height: 14px; }

@@ -1,10 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { supabase } from '@/supabase'
-import LoginView from '@/views/LoginView.vue'
-import RegistroView from '@/views/RegistroView.vue'
-import InicioView from '@/views/InicioView.vue'
-import ProductosView from '@/views/ProductosView.vue'
 
+// Todas las vistas se cargan bajo demanda (código por ruta).
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -15,23 +12,23 @@ const router = createRouter({
     {
       path: '/login',
       name: 'login',
-      component: LoginView,
+      component: () => import('@/views/LoginView.vue'),
     },
     {
       path: '/registro',
       name: 'registro',
-      component: RegistroView,
+      component: () => import('@/views/RegistroView.vue'),
     },
     {
       path: '/inicio',
       name: 'inicio',
-      component: InicioView,
+      component: () => import('@/views/InicioView.vue'),
       meta: { requiereAutenticacion: true },
     },
     {
       path: '/productos',
       name: 'productos',
-      component: ProductosView,
+      component: () => import('@/views/ProductosView.vue'),
       meta: { requiereAutenticacion: true },
     },
     {
@@ -39,6 +36,11 @@ const router = createRouter({
       name: 'cambiar-clave',
       component: () => import('@/views/CambiarClaveView.vue'),
       meta: { requiereAutenticacion: true },
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'no-encontrada',
+      component: () => import('@/views/NotFoundView.vue'),
     },
   ],
 })

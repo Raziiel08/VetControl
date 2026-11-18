@@ -1,16 +1,22 @@
 <script setup>
+import { ArrowLeft, Check, ClipboardList, Home, LogOut, Package, Pencil, Plus, RefreshCw, Tag, TriangleAlert, X } from 'lucide-vue-next'
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '@/supabase'
+import { useUsuario } from '@/composables/useUsuario'
+import { traducirError } from '@/utils/errores'
 
 const router = useRouter()
 
-// Datos del usuario
-const usuarioEmail = ref('')
-const usuarioInicial = computed(() => {
-  if (!usuarioEmail.value) return 'U'
-  return usuarioEmail.value.charAt(0).toUpperCase()
-})
+// Datos del usuario (email y rol) compartidos con el resto de las vistas
+const {
+  email: usuarioEmail,
+  inicial: usuarioInicial,
+  etiquetaRol,
+  esAdmin,
+  cargar,
+  cerrarSesion: salir,
+} = useUsuario()
 
 // Variables del ABM
 const productos = ref([])
@@ -30,14 +36,8 @@ const mensaje = ref('')
 const errorMensaje = ref('')
 const cerrandoSesion = ref(false)
 
-// Rol y permisos
-const rolActual = ref('')
-const ETIQUETAS_ROL = {
-  admin_veterinaria: 'Administrador/a',
-  veterinario: 'Veterinario/a',
-}
-const etiquetaRol = computed(() => ETIQUETAS_ROL[rolActual.value] || 'Sin rol asignado')
-const puedeEliminar = computed(() => rolActual.value === 'admin_veterinaria')
+// Rol y permisos (el rol se lee de la base, no de lo que muestra la pantalla)
+const puedeEliminar = esAdmin
 
 // Búsqueda, filtro y orden del listado
 const busqueda = ref('')
@@ -74,29 +74,10 @@ const productosFiltrados = computed(() => {
   return copia
 })
 
-async function cargarUsuario() {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (user) {
-    usuarioEmail.value = user.email
-  }
-
-  // El rol se lee de la base, no de lo que muestra la pantalla
-  const { data: rol, error } = await supabase.rpc('obtener_mi_rol')
-  if (!error) rolActual.value = rol || ''
-}
-
-// Traduce errores técnicos de Supabase a un mensaje entendible
-function traducirError(mensajeOriginal = '') {
-  if (mensajeOriginal.includes('row-level security')) {
-    return 'No tenés permiso para hacer esta acción.'
-  }
-  return mensajeOriginal || 'Ocurrió un error inesperado. Intentá nuevamente.'
-}
-
 async function cerrarSesion() {
   try {
     cerrandoSesion.value = true
-    await supabase.auth.signOut()
+    await salir()
     router.push('/login')
   } catch (error) {
     alert(error.message)
@@ -121,6 +102,90 @@ async function cargarProductos(limpiarMensaje = true) {
     productos.value = data || []
   }
   cargando.value = false
+}
+
+// ---- Movimientos de stock -------------------------------------------------
+// Cada alta dispara el trigger `aplicar_movimiento_stock`, que actualiza el
+// stock del producto y nunca permite que quede negativo.
+const movimientos = ref([])
+const movimientosDisponibles = ref(false)
+const showMovimiento = ref(false)
+const guardandoMovimiento = ref(false)
+const errorMovimiento = ref('')
+const movimiento = ref({ productoId: '', tipo: 'Entrada', cantidad: 1, precioUnitario: '', motivo: '' })
+
+async function cargarMovimientos() {
+  const { data, error } = await supabase
+    .from('movimientos_stock')
+    .select('id, tipo, cantidad, precio_unitario, motivo, creado_en, producto:productos(nombre)')
+    .order('creado_en', { ascending: false })
+    .limit(20)
+
+  if (error) {
+    // La tabla se crea en la etapa 8: si todavía no está, se oculta el módulo
+    movimientosDisponibles.value = false
+    movimientos.value = []
+    return
+  }
+  movimientosDisponibles.value = true
+  movimientos.value = data || []
+}
+
+function abrirMovimiento() {
+  errorMovimiento.value = ''
+  movimiento.value = {
+    productoId: productos.value[0]?.id || '',
+    tipo: 'Entrada',
+    cantidad: 1,
+    precioUnitario: '',
+    motivo: '',
+  }
+  showMovimiento.value = true
+}
+
+async function registrarMovimiento() {
+  errorMovimiento.value = ''
+  const cantidad = Number(movimiento.value.cantidad)
+  if (!movimiento.value.productoId) {
+    errorMovimiento.value = 'Elegí un producto.'
+    return
+  }
+  if (! Number.isInteger(cantidad) || cantidad <= 0) {
+    errorMovimiento.value = 'La cantidad debe ser un número entero mayor a cero.'
+    return
+  }
+
+  guardandoMovimiento.value = true
+  try {
+    const veterinariaId = await obtenerVeterinariaId()
+    const { error } = await supabase.from('movimientos_stock').insert({
+      veterinaria_id: veterinariaId,
+      producto_id: movimiento.value.productoId,
+      tipo: movimiento.value.tipo,
+      cantidad,
+      precio_unitario:
+        movimiento.value.precioUnitario === '' ? null : Number(movimiento.value.precioUnitario),
+      motivo: movimiento.value.motivo.trim() || null,
+    })
+    if (error) throw error
+
+    showMovimiento.value = false
+    mensaje.value = 'Movimiento registrado y stock actualizado.'
+    await Promise.all([cargarProductos(false), cargarMovimientos()])
+  } catch (error) {
+    errorMovimiento.value = traducirError(error.message)
+  } finally {
+    guardandoMovimiento.value = false
+  }
+}
+
+function fechaMovimiento(iso) {
+  return new Intl.DateTimeFormat('es-AR', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(iso))
 }
 
 function seleccionarImagen(evento) {
@@ -150,20 +215,17 @@ function seleccionarImagen(evento) {
   vistaPrevia.value = URL.createObjectURL(archivo)
 }
 
-async function subirImagen() {
+// Sube la imagen a <veterinaria_id>/<archivo>: las políticas de Storage solo
+// permiten escribir dentro de la carpeta de la veterinaria del usuario.
+async function subirImagen(veterinariaId) {
   if (!archivoImagen.value) return null
 
-  const {
-    data: { user },
-    error: errorUsuario,
-  } = await supabase.auth.getUser()
-
-  if (errorUsuario || !user) {
+  if (!veterinariaId) {
     throw new Error('No hay un usuario autenticado.')
   }
 
   const extension = archivoImagen.value.name.split('.').pop().toLowerCase()
-  const ruta = `${user.id}/${crypto.randomUUID()}.${extension}`
+  const ruta = `${veterinariaId}/${crypto.randomUUID()}.${extension}`
 
   const { error: errorSubida } = await supabase.storage
     .from('productos')
@@ -223,11 +285,9 @@ async function guardarProducto() {
   try {
     // Se resuelve antes de subir la imagen para no dejar archivos huérfanos
     // si la cuenta no tiene veterinaria asociada.
-    const veterinariaId = productoEditandoId.value
-      ? null
-      : await obtenerVeterinariaId()
+    const veterinariaId = await obtenerVeterinariaId()
 
-    nuevaImagen = await subirImagen()
+    nuevaImagen = await subirImagen(veterinariaId)
 
     const datosProducto = {
       nombre: nombre.value.trim(),
@@ -372,8 +432,9 @@ function cancelarEdicion() {
 }
 
 onMounted(() => {
-  cargarUsuario()
+  cargar()
   cargarProductos()
+  cargarMovimientos()
 })
 </script>
 
@@ -382,16 +443,16 @@ onMounted(() => {
     <!-- Barra superior coherente con VetControl -->
     <header class="topbar">
       <router-link to="/inicio" class="brand" aria-label="Ir al panel principal">
-        <span class="brand-mark">✚</span>
+        <span class="brand-mark"><Plus /></span>
         <span><strong>Vet</strong><b>Control</b><small>Gestión veterinaria simple</small></span>
       </router-link>
 
       <div class="top-nav-links">
         <router-link to="/inicio" class="nav-pill">
-          ⌂ Volver a Agenda / Pacientes
+          <Home /> Volver a Agenda / Pacientes
         </router-link>
         <span class="nav-pill active">
-          🏷️ Productos y Farmacia
+          <Tag /> Productos y Farmacia
         </span>
       </div>
 
@@ -399,7 +460,7 @@ onMounted(() => {
         <div class="avatar">{{ usuarioInicial }}</div>
         <span class="user-name">{{ usuarioEmail || 'Usuario' }} <small>{{ etiquetaRol }}</small></span>
         <button class="logout-btn" :disabled="cerrandoSesion" @click="cerrarSesion">
-          {{ cerrandoSesion ? '...' : '↪ Salir' }}
+          <LogOut v-if="!cerrandoSesion" /> {{ cerrandoSesion ? '...' : 'Salir' }}
         </button>
       </div>
     </header>
@@ -413,7 +474,7 @@ onMounted(() => {
           <p class="muted">Administrá el inventario, medicamentos, vacunas y accesorios de la veterinaria.</p>
         </div>
         <router-link to="/inicio" class="outline-button">
-          ← Volver a Agenda
+          <ArrowLeft /> Volver a Agenda
         </router-link>
       </div>
 
@@ -471,7 +532,7 @@ onMounted(() => {
                 class="img-preview"
               />
               <span class="preview-tag">
-                {{ vistaPrevia ? '✓ Nueva foto seleccionada' : 'Foto actual guardada' }}
+                <Check v-if="vistaPrevia" /> {{ vistaPrevia ? 'Nueva foto seleccionada' : 'Foto actual guardada' }}
               </span>
             </div>
 
@@ -481,17 +542,18 @@ onMounted(() => {
             </label>
 
             <!-- Mensajes de feedback -->
-            <p v-if="errorMensaje" class="feedback-msg error">⚠ {{ errorMensaje }}</p>
-            <p v-if="mensaje" class="feedback-msg exito">✓ {{ mensaje }}</p>
+            <p v-if="errorMensaje" class="feedback-msg error"><TriangleAlert /> {{ errorMensaje }}</p>
+            <p v-if="mensaje" class="feedback-msg exito"><Check /> {{ mensaje }}</p>
 
             <div class="form-actions">
               <button type="submit" class="primary-button" :disabled="cargando">
+                <Plus v-if="!cargando && !productoEditandoId" />
                 {{
                   cargando
                     ? 'Guardando...'
                     : productoEditandoId
                     ? 'Actualizar producto'
-                    : '＋ Guardar producto'
+                    : 'Guardar producto'
                 }}
               </button>
               <button
@@ -516,7 +578,7 @@ onMounted(() => {
             <div class="list-actions">
               <span class="count-pill">{{ productosFiltrados.length }} de {{ productos.length }}</span>
               <button class="outline-button refresh-btn" :disabled="cargando" @click="cargarProductos">
-                ⟳ Actualizar
+                <RefreshCw /> Actualizar
               </button>
             </div>
           </div>
@@ -548,7 +610,7 @@ onMounted(() => {
           </div>
 
           <div v-else-if="!productos.length" class="empty-state">
-            <span class="empty-icon">📦</span>
+            <span class="empty-icon"><Package /></span>
             <p>Todavía no agregaste ningún producto.</p>
             <small class="muted">Completá el formulario para registrar medicamentos o alimentos.</small>
           </div>
@@ -598,10 +660,10 @@ onMounted(() => {
                   <td style="text-align: right;">
                     <div class="row-actions">
                       <button class="action-btn edit" @click="editarProducto(prod)" title="Editar producto">
-                        ✎ Editar
+                        <Pencil /> Editar
                       </button>
                       <button v-if="puedeEliminar" class="action-btn delete" @click="eliminarProducto(prod)" title="Eliminar producto">
-                        ✕ Eliminar
+                        <X /> Eliminar
                       </button>
                     </div>
                   </td>
@@ -611,7 +673,118 @@ onMounted(() => {
           </div>
         </section>
       </div>
+
+      <!-- Movimientos de stock: entradas, salidas y ventas -->
+      <section class="panel movimientos-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">INVENTARIO</p>
+            <h2>Movimientos de stock</h2>
+            <p class="muted">Las entradas suman unidades; las salidas y ventas las descuentan.</p>
+          </div>
+          <button v-if="movimientosDisponibles" class="primary-button" @click="abrirMovimiento">
+            <Plus /> Registrar movimiento
+          </button>
+        </div>
+
+        <div v-if="!movimientosDisponibles" class="empty-state">
+          <span class="empty-icon"><ClipboardList /></span>
+          <strong>Los movimientos de stock todavía no están disponibles</strong>
+          <p>Aplicá el archivo database.sql en Supabase para habilitar esta sección.</p>
+        </div>
+
+        <div v-else-if="!movimientos.length" class="empty-state">
+          <span class="empty-icon"><ClipboardList /></span>
+          <strong>No hay movimientos registrados</strong>
+          <p>Registrá una entrada, salida o venta para actualizar el stock automáticamente.</p>
+        </div>
+
+        <div v-else class="table-responsive">
+          <table class="productos-table">
+            <thead>
+              <tr>
+                <th>FECHA</th>
+                <th>PRODUCTO</th>
+                <th>TIPO</th>
+                <th>CANTIDAD</th>
+                <th>PRECIO UNIT.</th>
+                <th>MOTIVO</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="mov in movimientos" :key="mov.id">
+                <td>{{ fechaMovimiento(mov.creado_en) }}</td>
+                <td><strong class="prod-title">{{ mov.producto?.nombre || 'Producto' }}</strong></td>
+                <td>
+                  <span class="status" :class="mov.tipo === 'Entrada' ? 'green' : 'yellow'">
+                    {{ mov.tipo }}
+                  </span>
+                </td>
+                <td>{{ mov.tipo === 'Entrada' ? '+' : '−' }}{{ mov.cantidad }}</td>
+                <td>{{ mov.precio_unitario == null ? '—' : `$${Number(mov.precio_unitario).toFixed(2)}` }}</td>
+                <td class="prod-desc">{{ mov.motivo || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
+
+    <!-- Modal: registrar movimiento de stock -->
+    <div v-if="showMovimiento" class="modal-backdrop" @click.self="showMovimiento = false">
+      <section class="booking-modal">
+        <button class="modal-close" aria-label="Cerrar" @click="showMovimiento = false"><X /></button>
+        <p class="eyebrow">INVENTARIO</p>
+        <h2>Registrar movimiento</h2>
+        <p class="muted">El stock se actualiza automáticamente al guardar.</p>
+
+        <form class="modal-form" @submit.prevent="registrarMovimiento">
+          <label>
+            Producto
+            <select v-model="movimiento.productoId">
+              <option value="" disabled>Elegí un producto</option>
+              <option v-for="prod in productos" :key="prod.id" :value="prod.id">
+                {{ prod.nombre }} ({{ prod.stock }} un.)
+              </option>
+            </select>
+          </label>
+
+          <label>
+            Tipo de movimiento
+            <select v-model="movimiento.tipo">
+              <option value="Entrada">Entrada (suma stock)</option>
+              <option value="Salida">Salida (descuenta stock)</option>
+              <option value="Venta">Venta (descuenta stock)</option>
+            </select>
+          </label>
+
+          <div class="fila">
+            <label>
+              Cantidad
+              <input v-model="movimiento.cantidad" type="number" min="1" step="1" required />
+            </label>
+            <label>
+              Precio unitario (opcional)
+              <input v-model="movimiento.precioUnitario" type="number" min="0" step="0.01" placeholder="0.00" />
+            </label>
+          </div>
+
+          <label>
+            Motivo (opcional)
+            <input v-model="movimiento.motivo" type="text" maxlength="160" placeholder="Ej: compra a proveedor" />
+          </label>
+
+          <p v-if="errorMovimiento" class="modal-error"><TriangleAlert /> {{ errorMovimiento }}</p>
+
+          <div class="modal-actions">
+            <button type="button" class="outline-button" @click="showMovimiento = false">Cancelar</button>
+            <button type="submit" class="primary-button" :disabled="guardandoMovimiento">
+              <Plus /> {{ guardandoMovimiento ? 'Guardando...' : 'Registrar' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -621,6 +794,11 @@ onMounted(() => {
   margin: 0 auto;
   padding: 30px 35px 60px;
 }
+
+.movimientos-panel { margin-top: 22px; padding-bottom: 4px; }
+.movimientos-panel .panel-header { padding: 20px 22px; }
+.movimientos-panel .empty-state { padding: 30px 20px; }
+.movimientos-panel table { width: 100%; }
 
 .top-nav-links {
   display: flex;

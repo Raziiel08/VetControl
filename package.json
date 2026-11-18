@@ -6,15 +6,19 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:sql": "node scripts/validar-sql.mjs",
+    "check:icons": "node scripts/auditar-iconos.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
+    "lucide-vue-next": "^1.0.0",
     "vue": "^3.5.42",
     "vue-router": "^5.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
+    "pgsql-parser": "^18.3.5",
     "vite": "^8.2.2",
     "vite-plugin-vue-devtools": "^8.2.1"
   },

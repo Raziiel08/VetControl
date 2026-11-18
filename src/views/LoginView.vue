@@ -1,4 +1,5 @@
 <script setup>
+import { Plus } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '@/supabase'
@@ -60,7 +61,7 @@ async function iniciarSesion() {
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-brand">
-        <span class="brand-mark">✚</span>
+        <span class="brand-mark"><Plus /></span>
         <div>
           <span class="auth-brand-text"><strong>Vet</strong><b>Control</b></span>
           <small>Gestión veterinaria simple</small>

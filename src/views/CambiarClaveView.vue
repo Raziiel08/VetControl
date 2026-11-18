@@ -1,22 +1,21 @@
 <script setup>
+import { ArrowLeft, Plus } from 'lucide-vue-next'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '@/supabase'
 import { validarPassword } from '@/utils/valicom'
+import { useUsuario } from '@/composables/useUsuario'
 
 const router = useRouter()
 const nuevaClave = ref('')
 const confirmarClave = ref('')
-const usuarioEmail = ref('')
+const { email: usuarioEmail, cargar } = useUsuario()
 const cargando = ref(false)
 const mensaje = ref('')
 const exitoso = ref(false)
 
-onMounted(async () => {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (user) {
-    usuarioEmail.value = user.email
-  }
+onMounted(() => {
+  cargar()
 })
 
 async function cambiarClave() {
@@ -63,7 +62,7 @@ async function cambiarClave() {
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-brand">
-        <span class="brand-mark">✚</span>
+        <span class="brand-mark"><Plus /></span>
         <div>
           <span class="auth-brand-text"><strong>Vet</strong><b>Control</b></span>
           <small>Gestión veterinaria simple</small>
@@ -96,7 +95,7 @@ async function cambiarClave() {
       </p>
 
       <p class="auth-link">
-        <router-link to="/">← Volver al inicio</router-link>
+        <router-link to="/"><ArrowLeft /> Volver al inicio</router-link>
       </p>
     </div>
   </div>
