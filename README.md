@@ -4,7 +4,7 @@
 
 VetControl es una aplicación web para gestionar una clínica veterinaria chica: turnos, mascotas, clientes, consultas, productos y el portal de los dueños, todo junto y conectado a datos reales.
 
-Está hecha con **Vue 3 + Vite** y **Supabase** (base de datos, ingreso con usuario y contraseña, e imágenes). La interfaz habla español, usa "vos" y solamente iconos SVG de `lucide-vue-next`: no hay emojis ni glifos de texto.
+Está hecha con **Vue 3 + Vite** y **Supabase** (base de datos, ingreso con usuario y contraseña, e imágenes).
 
 ## ¿Qué podés hacer?
 
@@ -24,7 +24,7 @@ Está hecha con **Vue 3 + Vite** y **Supabase** (base de datos, ingreso con usua
 - Vincular la cuenta con la ficha de cliente.
 - Usar el menú lateral desde el celular.
 
-Cada cuenta entra donde corresponde: los clientes van directo al portal y el panel interno queda para el equipo de la veterinaria (administrador o veterinario). Si una sección nueva todavía no está habilitada en la base, la app lo avisa en lugar de romperse.
+Cada cuenta entra donde corresponde: los clientes van directo al portal y el panel interno queda para el equipo de la veterinaria (administrador o veterinario).
 
 ## Puesta en marcha
 
