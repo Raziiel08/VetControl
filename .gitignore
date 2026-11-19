@@ -1,20 +1,15 @@
-# Dependencias
 node_modules/
 
-# Variables de entorno (nunca se suben)
 .env
 .env.*
 !.env.example
 
-# Build
 dist/
 *.local
 
-# Supabase CLI
 supabase/.temp/
 supabase/.branches/
 
-# Editores y sistema
 .vscode/
 .idea/
 .DS_Store

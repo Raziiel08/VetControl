@@ -1,11 +1,15 @@
 <script setup>
-import { Plus } from "lucide-vue-next";
-import { ref } from "vue";
+import { Eye, EyeOff, Plus } from "lucide-vue-next";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { supabase } from "@/supabase";
-import { validarEmail, validarPassword } from "@/utils/valicom";
+import {
+  validarCorreo,
+  validarClave,
+  esDominioConocido,
+} from "@/utils/valicom";
 
-const router = useRouter();
+const enrutador = useRouter();
 const nombreVeterinaria = ref("");
 const correo = ref("");
 const clave = ref("");
@@ -13,25 +17,45 @@ const confirmarClave = ref("");
 const cargando = ref(false);
 const mensaje = ref("");
 const registroExitoso = ref(false);
+const mostrarClave = ref(false);
+const tipoCuenta = ref("veterinaria");
+const esCliente = computed(() => tipoCuenta.value === "cliente");
+const esInvitado = computed(() => tipoCuenta.value === "veterinario");
+const codigoInvitacion = ref("");
 
 async function registrarse() {
   mensaje.value = "";
   registroExitoso.value = false;
 
-  if (nombreVeterinaria.value.trim().length < 3) {
+  if (
+    !esCliente.value &&
+    !esInvitado.value &&
+    nombreVeterinaria.value.trim().length < 3
+  ) {
     mensaje.value = "Ingresá el nombre de tu veterinaria (mínimo 3 caracteres)";
     return;
   }
 
-  const validacionEmail = validarEmail(correo.value);
-  if (!validacionEmail.valido) {
-    mensaje.value = validacionEmail.error;
+  if (esInvitado.value && codigoInvitacion.value.trim().length < 4) {
+    mensaje.value =
+      "Ingresá el código de invitación que te dio tu veterinaria.";
     return;
   }
 
-  const validacionPass = validarPassword(clave.value);
-  if (!validacionPass.valido) {
-    mensaje.value = validacionPass.error;
+  const validacionCorreo = validarCorreo(correo.value);
+  if (!validacionCorreo.valido) {
+    mensaje.value = validacionCorreo.error;
+    return;
+  }
+  if (esCliente.value && !esDominioConocido(validacionCorreo.correo)) {
+    mensaje.value =
+      "Usá un correo real (gmail, hotmail, outlook, yahoo, etc.).";
+    return;
+  }
+
+  const validacionClave = validarClave(clave.value);
+  if (!validacionClave.valido) {
+    mensaje.value = validacionClave.error;
     return;
   }
 
@@ -43,11 +67,29 @@ async function registrarse() {
   try {
     cargando.value = true;
 
+    if (esInvitado.value) {
+      const { data: codigoValido, error: errorCodigo } = await supabase.rpc(
+        "validar_codigo_invitacion",
+        { p_codigo: codigoInvitacion.value.trim() },
+      );
+      if (errorCodigo) throw errorCodigo;
+      if (!codigoValido) {
+        mensaje.value =
+          "Ese código de invitación no es válido. Pedile uno a tu veterinaria.";
+        return;
+      }
+    }
+
+    const metadatos = esCliente.value
+      ? { rol: "cliente" }
+      : esInvitado.value
+        ? { codigo_invitacion: codigoInvitacion.value.trim().toUpperCase() }
+        : { nombre_veterinaria: nombreVeterinaria.value.trim() };
+
     const { data, error } = await supabase.auth.signUp({
-      email: validacionEmail.email,
+      email: validacionCorreo.correo,
       password: clave.value,
-      // Un trigger en la base crea la veterinaria y el perfil con este nombre
-      options: { data: { nombre_veterinaria: nombreVeterinaria.value.trim() } },
+      options: { data: metadatos },
     });
 
     if (error) throw error;
@@ -57,19 +99,45 @@ async function registrarse() {
     if (data?.session) {
       mensaje.value = "¡Cuenta creada con éxito! Entrando...";
       setTimeout(() => {
-        router.push("/inicio");
+        enrutador.push("/inicio");
       }, 1000);
     } else {
       mensaje.value = "¡Cuenta creada! Ya podés iniciar sesión.";
       setTimeout(() => {
-        router.push("/login");
+        enrutador.push("/login");
       }, 1500);
     }
     correo.value = "";
     clave.value = "";
     confirmarClave.value = "";
+    codigoInvitacion.value = "";
   } catch (error) {
-    mensaje.value = error.message || "Error al registrarse";
+    const mensajeError = (error?.message || "").toLowerCase();
+    if (
+      mensajeError.includes("código de invitación") ||
+      mensajeError.includes("codigo de invitacion")
+    ) {
+      mensaje.value =
+        "Ese código de invitación no es válido. Pedile uno a tu veterinaria.";
+    } else if (
+      mensajeError.includes("database error saving new user") &&
+      esInvitado.value
+    ) {
+      mensaje.value =
+        "No se pudo unir a la veterinaria con ese código. Pedile uno nuevo a tu veterinaria.";
+    } else if (mensajeError.includes("database error saving new user")) {
+      mensaje.value =
+        "No encontramos un cliente con ese correo. Pedí el alta en tu veterinaria y volvé a intentar.";
+    } else if (
+      mensajeError.includes("already registered") ||
+      mensajeError.includes("already been registered")
+    ) {
+      mensaje.value = "Ese correo ya tiene una cuenta. Iniciá sesión.";
+    } else if (mensajeError.includes("password")) {
+      mensaje.value = "La contraseña no es válida. Usá al menos 6 caracteres.";
+    } else {
+      mensaje.value = error?.message || "Error al registrarse";
+    }
   } finally {
     cargando.value = false;
   }
@@ -77,12 +145,12 @@ async function registrarse() {
 </script>
 
 <template>
-  <div class="auth-page">
-    <div class="auth-card">
-      <div class="auth-brand">
-        <span class="brand-mark"><Plus /></span>
+  <div class="pagina-acceso">
+    <div class="tarjeta-acceso">
+      <div class="marca-acceso">
+        <span class="icono-marca"><Plus /></span>
         <div>
-          <span class="auth-brand-text"
+          <span class="texto-marca-acceso"
             ><strong>Vet</strong><b>Control</b></span
           >
           <small>Gestión veterinaria simple</small>
@@ -90,12 +158,56 @@ async function registrarse() {
       </div>
 
       <h1>Crear cuenta</h1>
-      <p class="auth-subtitle">
+      <p class="subtitulo-acceso">
         Registrate para comenzar a gestionar tu veterinaria.
       </p>
 
       <form @submit.prevent="registrarse">
-        <label>
+        <fieldset class="tipo-cuenta">
+          <legend>¿Qué tipo de cuenta necesitás?</legend>
+          <label
+            class="tipo-opcion"
+            :class="{ activa: !esCliente && !esInvitado }"
+          >
+            <input type="radio" value="veterinaria" v-model="tipoCuenta" />
+            <span>
+              <strong>Creo una veterinaria</strong>
+              <small>Soy el administrador de la clínica</small>
+            </span>
+          </label>
+          <label class="tipo-opcion" :class="{ activa: esInvitado }">
+            <input type="radio" value="veterinario" v-model="tipoCuenta" />
+            <span>
+              <strong>Me invitaron</strong>
+              <small>Me uno como veterinario a una clínica</small>
+            </span>
+          </label>
+          <label class="tipo-opcion" :class="{ activa: esCliente }">
+            <input type="radio" value="cliente" v-model="tipoCuenta" />
+            <span>
+              <strong>Soy cliente</strong>
+              <small>Vinculo mi cuenta con mi ficha</small>
+            </span>
+          </label>
+        </fieldset>
+
+        <label v-if="esInvitado">
+          Código de invitación
+          <input
+            type="text"
+            v-model="codigoInvitacion"
+            required
+            maxlength="8"
+            placeholder="Ej: A1B2C3D4"
+            @input="
+              codigoInvitacion = codigoInvitacion
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, '')
+            "
+          />
+        </label>
+
+        <label v-else-if="!esCliente">
           Nombre de la veterinaria
           <input
             type="text"
@@ -105,6 +217,17 @@ async function registrarse() {
             placeholder="Ej: Veterinaria San Roque"
           />
         </label>
+
+        <p v-if="esInvitado" class="ayuda-acceso">
+          Pedile el código al administrador de tu veterinaria. Lo encuentra en
+          Configuración → Código de invitación. Con ese código vas a entrar como
+          veterinario a su clínica.
+        </p>
+        <p v-else-if="esCliente" class="ayuda-acceso">
+          Usá el mismo correo con el que te dieron de alta en la veterinaria. Si
+          todavía no estás dado de alta, pedile el alta a tu veterinaria
+          primero.
+        </p>
 
         <label>
           Correo electrónico
@@ -117,31 +240,57 @@ async function registrarse() {
           />
         </label>
 
-        <label>
-          Contraseña
-          <input
-            type="password"
-            v-model="clave"
-            required
-            autocomplete="new-password"
-            placeholder="Mínimo 6 caracteres"
-          />
-        </label>
+        <div class="campo-clave">
+          <label>
+            Contraseña
+            <input
+              :type="mostrarClave ? 'text' : 'password'"
+              v-model="clave"
+              required
+              autocomplete="new-password"
+              placeholder="Mínimo 6 caracteres"
+            />
+          </label>
+          <button
+            type="button"
+            class="alternar-clave"
+            @click="mostrarClave = !mostrarClave"
+            :aria-label="
+              mostrarClave ? 'Ocultar contraseña' : 'Mostrar contraseña'
+            "
+          >
+            <Eye v-if="!mostrarClave" />
+            <EyeOff v-else />
+          </button>
+        </div>
 
-        <label>
-          Confirmar contraseña
-          <input
-            type="password"
-            v-model="confirmarClave"
-            required
-            autocomplete="new-password"
-            placeholder="Repetí tu contraseña"
-          />
-        </label>
+        <div class="campo-clave">
+          <label>
+            Confirmar contraseña
+            <input
+              :type="mostrarClave ? 'text' : 'password'"
+              v-model="confirmarClave"
+              required
+              autocomplete="new-password"
+              placeholder="Repetí tu contraseña"
+            />
+          </label>
+          <button
+            type="button"
+            class="alternar-clave"
+            @click="mostrarClave = !mostrarClave"
+            :aria-label="
+              mostrarClave ? 'Ocultar contraseña' : 'Mostrar contraseña'
+            "
+          >
+            <Eye v-if="!mostrarClave" />
+            <EyeOff v-else />
+          </button>
+        </div>
 
         <button
           type="submit"
-          class="primary-button auth-submit"
+          class="boton-principal boton-acceso"
           :disabled="cargando"
         >
           {{ cargando ? "Registrando..." : "Crear cuenta" }}
@@ -150,13 +299,13 @@ async function registrarse() {
 
       <p
         v-if="mensaje"
-        class="auth-message"
+        class="mensaje-acceso"
         :class="{ exito: registroExitoso, error: !registroExitoso }"
       >
         {{ mensaje }}
       </p>
 
-      <p class="auth-link">
+      <p class="enlace-acceso">
         ¿Ya tenés cuenta? <router-link to="/login">Iniciá sesión</router-link>
       </p>
     </div>
@@ -164,91 +313,172 @@ async function registrarse() {
 </template>
 
 <style scoped>
-.auth-page {
+.pagina-acceso {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 20px;
   background: linear-gradient(135deg, #f5f8f4 0%, #e7f5da 100%);
 }
-.auth-card {
+.tarjeta-acceso {
   width: min(100%, 420px);
   padding: 40px;
   background: #fff;
   border-radius: 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--borde);
   box-shadow: 0 8px 30px rgba(27, 94, 58, 0.08);
 }
-.auth-brand {
+.marca-acceso {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 32px;
 }
-.auth-brand-text strong,
-.auth-brand-text b {
+.texto-marca-acceso strong,
+.texto-marca-acceso b {
   font-size: 22px;
   letter-spacing: -0.8px;
 }
-.auth-brand-text strong {
-  color: var(--green-dark);
+.texto-marca-acceso strong {
+  color: var(--verde-oscuro);
 }
-.auth-brand-text b {
-  color: var(--green);
+.texto-marca-acceso b {
+  color: var(--verde);
 }
-.auth-brand small {
+.marca-acceso small {
   display: block;
-  color: var(--muted);
+  color: var(--atenuado);
   font-size: 10px;
   font-weight: 600;
 }
-.auth-card h1 {
-  color: var(--green-dark);
+.tarjeta-acceso h1 {
+  color: var(--verde-oscuro);
   font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.5px;
   margin-bottom: 6px;
 }
-.auth-subtitle {
-  color: var(--muted);
+.subtitulo-acceso {
+  color: var(--atenuado);
   font-size: 13px;
   margin-bottom: 28px;
 }
-.auth-card label {
+.tarjeta-acceso label {
   display: block;
   margin-bottom: 18px;
-  color: var(--muted);
+  color: var(--atenuado);
   font-size: 11px;
   font-weight: 700;
 }
-.auth-card input {
+.tarjeta-acceso input {
   display: block;
   width: 100%;
   margin-top: 6px;
   padding: 12px 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--borde);
   border-radius: 8px;
   outline: none;
-  color: var(--ink);
+  color: var(--tinta);
   background: #fbfcfb;
   font-size: 13px;
   transition: border-color 0.2s;
 }
-.auth-card input:focus {
-  border-color: var(--green);
+.tarjeta-acceso input:focus {
+  border-color: var(--verde);
   box-shadow: 0 0 0 3px rgba(91, 174, 74, 0.1);
 }
-.auth-submit {
+.campo-clave {
+  position: relative;
+  margin-top: 6px;
+}
+.campo-clave input {
+  margin-top: 0;
+  padding-right: 42px;
+}
+.alternar-clave {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--atenuado);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.tipo-cuenta {
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+}
+.tipo-cuenta legend {
+  margin-bottom: 8px;
+  color: var(--atenuado);
+  font-size: 11px;
+  font-weight: 700;
+}
+.tipo-opcion {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px !important;
+  padding: 11px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: #fbfcfb;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+.tipo-opcion.activa {
+  border-color: var(--verde);
+  background: #f2f9f0;
+}
+.tipo-opcion input {
+  width: auto !important;
+  margin-top: 0 !important;
+  accent-color: var(--verde);
+}
+.tipo-opcion span {
+  display: block;
+}
+.tipo-opcion strong {
+  display: block;
+  color: var(--verde-oscuro);
+  font-size: 12px;
+}
+.tipo-opcion small {
+  display: block;
+  margin-top: 2px;
+  color: var(--atenuado);
+  font-size: 10px;
+  font-weight: 400;
+}
+.ayuda-acceso {
+  margin: -6px 0 18px;
+  padding: 10px 12px;
+  border: 1px dashed var(--borde);
+  border-radius: 8px;
+  background: #fbfcfb;
+  color: var(--atenuado);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.boton-acceso {
   width: 100%;
   margin-top: 6px;
   padding: 13px;
   font-size: 13px;
 }
-.auth-submit:disabled {
+.boton-acceso:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-.auth-message {
+.mensaje-acceso {
   margin-top: 18px;
   padding: 11px 14px;
   border-radius: 8px;
@@ -256,26 +486,26 @@ async function registrarse() {
   font-weight: 600;
   text-align: center;
 }
-.auth-message.exito {
+.mensaje-acceso.exito {
   color: #438538;
   background: #ebf7e4;
 }
-.auth-message.error {
+.mensaje-acceso.error {
   color: #ae5757;
   background: #fbeaea;
 }
-.auth-link {
+.enlace-acceso {
   margin-top: 22px;
   text-align: center;
-  color: var(--muted);
+  color: var(--atenuado);
   font-size: 12px;
 }
-.auth-link a {
-  color: var(--green);
+.enlace-acceso a {
+  color: var(--verde);
   font-weight: 700;
   text-decoration: none;
 }
-.auth-link a:hover {
+.enlace-acceso a:hover {
   text-decoration: underline;
 }
 </style>

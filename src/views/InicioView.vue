@@ -1,16 +1,15 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useUsuario } from '@/composables/useUsuario'
-import { useToast } from '@/composables/useToast'
-import AgendaPanel from '@/components/inicio/AgendaPanel.vue'
-import MascotasPanel from '@/components/inicio/MascotasPanel.vue'
-import ClientesPanel from '@/components/inicio/ClientesPanel.vue'
-import ConsultasPanel from '@/components/inicio/ConsultasPanel.vue'
-import ConfiguracionPanel from '@/components/inicio/ConfiguracionPanel.vue'
-import PortalCliente from '@/components/inicio/PortalCliente.vue'
+import { ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import { useUsuario } from "@/composables/useUsuario";
+import { useToast } from "@/composables/useToast";
+import AgendaPanel from "@/components/inicio/AgendaPanel.vue";
+import MascotasPanel from "@/components/inicio/MascotasPanel.vue";
+import ClientesPanel from "@/components/inicio/ClientesPanel.vue";
+import ConsultasPanel from "@/components/inicio/ConsultasPanel.vue";
+import ConfiguracionPanel from "@/components/inicio/ConfiguracionPanel.vue";
+import PortalCliente from "@/components/inicio/PortalCliente.vue";
 import {
-  Bell,
   CalendarDays,
   CircleHelp,
   LogOut,
@@ -22,171 +21,212 @@ import {
   Tag,
   Users,
   X,
-} from 'lucide-vue-next'
+} from "lucide-vue-next";
 
-const router = useRouter()
-const { email: usuarioEmail, inicial: usuarioInicial, etiquetaRol, esStaff, esAdmin, rol, cargar, cerrarSesion: salir } = useUsuario()
-const { notify } = useToast()
+const enrutador = useRouter();
+const {
+  correo: usuarioCorreo,
+  inicial: usuarioInicial,
+  etiquetaRol,
+  esEquipo,
+  esAdministrador,
+  rol,
+  cargar,
+  cerrarSesion: salir,
+} = useUsuario();
+const { notificar } = useToast();
 
-// 'admin' = panel de la veterinaria, 'client' = portal del dueño de mascotas.
-// El modo inicial sale del rol guardado en `perfiles`: si la cuenta es de un
-// cliente, se abre directo en su portal.
-const mode = ref('admin')
-const adminView = ref('agenda')
+const modo = ref("panel");
+const vistaPanel = ref("agenda");
 
-// Cajón de navegación para pantallas chicas y menú de la cuenta
-const menuMovil = ref(false)
-const menuCuenta = ref(false)
+const menuMovil = ref(false);
+const menuCuenta = ref(false);
+const portalRef = ref(null);
 
-// Al abrir el portal se reinicia (vuelve a su pantalla de inicio).
-const portalKey = ref(0)
+const clavePortal = ref(0);
 
-// El icono es el componente de lucide (antes eran glifos de texto)
-const navItems = [
-  { id: 'agenda', label: 'Agenda', icon: CalendarDays },
-  { id: 'clients', label: 'Clientes', icon: Users },
-  { id: 'pets', label: 'Mascotas', icon: PawPrint },
-  { id: 'consultations', label: 'Consultas', icon: Stethoscope },
-  { id: 'productos', label: 'Productos', icon: Tag },
-  { id: 'settings', label: 'Configuración', icon: Settings },
-]
+const elementosMenu = [
+  { id: "agenda", label: "Agenda", icon: CalendarDays },
+  { id: "clientes", label: "Clientes", icon: Users },
+  { id: "mascotas", label: "Mascotas", icon: PawPrint },
+  { id: "consultas", label: "Consultas", icon: Stethoscope },
+  { id: "productos", label: "Productos", icon: Tag },
+  { id: "configuracion", label: "Configuración", icon: Settings },
+];
 
 onMounted(async () => {
-  await cargar()
-  // Rol real desde la base: un cliente nunca ve el panel de la veterinaria
-  if (rol.value && !esStaff.value) {
-    mode.value = 'client'
-    portalKey.value += 1
+  await cargar();
+  if (rol.value && !esEquipo.value) {
+    modo.value = "cliente";
+    clavePortal.value += 1;
   }
-})
+});
 
-function selectAdminView(view) {
-  if (!esStaff.value && view !== 'settings') {
-    notify('Esta sección es para el equipo de la veterinaria')
-    return
+function seleccionarVistaPanel(vista) {
+  if (!esEquipo.value && vista !== "configuracion") {
+    notificar("Esta sección es para el equipo de la veterinaria");
+    return;
   }
-  if (view === 'productos') {
-    router.push('/productos')
-    return
+  if (vista === "productos") {
+    enrutador.push("/productos");
+    return;
   }
-  adminView.value = view
-  menuMovil.value = false
-  menuCuenta.value = false
-  if (view === 'agenda') window.scrollTo({ top: 0, behavior: 'smooth' })
+  vistaPanel.value = vista;
+  menuMovil.value = false;
+  menuCuenta.value = false;
+  if (vista === "agenda") window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function abrirPortal() {
-  mode.value = 'client'
-  menuMovil.value = false
-  menuCuenta.value = false
-  portalKey.value += 1
+  modo.value = "cliente";
+  menuMovil.value = false;
+  menuCuenta.value = false;
+  clavePortal.value += 1;
 }
 
 function abrirPanel() {
-  mode.value = 'admin'
+  modo.value = "panel";
 }
 
 async function cerrarSesion() {
   try {
-    await salir()
+    await salir();
   } finally {
-    router.push('/login')
+    enrutador.push("/login");
   }
 }
 </script>
 
 <template>
-  <div class="app-shell">
-    <header class="topbar">
+  <div class="contenedor-aplicacion">
+    <header class="barra-superior">
       <button
-        class="brand"
+        class="marca"
         aria-label="Ir al inicio"
-        @click="abrirPanel(); selectAdminView('agenda')"
+        @click="
+          abrirPanel();
+          seleccionarVistaPanel('agenda');
+        "
       >
-        <span class="brand-mark"><Plus /></span>
-        <span><strong>Vet</strong><b>Control</b><small>Gestión veterinaria simple</small></span>
+        <span class="icono-marca"><Plus /></span>
+        <span
+          ><strong>Vet</strong><b>Control</b
+          ><small>Gestión veterinaria simple</small></span
+        >
       </button>
 
-      <div class="mode-switch" aria-label="Cambiar flujo">
-        <button v-if="esStaff" :class="{ active: mode === 'admin' }" @click="abrirPanel">
+      <div v-if="false" class="selector-modo" aria-label="Cambiar flujo">
+        <button
+          v-if="esEquipo"
+          :class="{ activo: modo === 'panel' }"
+          @click="abrirPanel"
+        >
           Panel veterinaria
         </button>
-        <button :class="{ active: mode === 'client' }" @click="abrirPortal">
+        <button :class="{ activo: modo === 'cliente' }" @click="abrirPortal">
           Portal cliente
         </button>
       </div>
 
-      <div class="top-actions">
-        <button class="icon-button" aria-label="Notificaciones" @click="notify('No tenés notificaciones nuevas')"><Bell /><i></i></button>
+      <div class="acciones-superiores">
+        <button
+          v-if="modo === 'cliente'"
+          class="boton-menu-cliente-superior"
+          aria-label="Abrir menú"
+          @click="portalRef?.abrirMenu()"
+        >
+          <Menu />
+        </button>
+
         <div class="avatar">{{ usuarioInicial }}</div>
-        <span class="user-name">{{ usuarioEmail || 'Usuario' }} <small>{{ etiquetaRol }}</small></span>
-        <button class="icon-button" aria-label="Mi cuenta" @click="menuCuenta = !menuCuenta"><Users /></button>
-        <div v-if="menuCuenta" class="account-popover">
-          <strong>{{ usuarioEmail || 'Usuario' }}</strong>
-          <small>{{ etiquetaRol }}</small>
-          <button @click="cerrarSesion()"><LogOut /> Cerrar sesión</button>
-        </div>
+        <span class="nombre-usuario"
+          >{{ usuarioCorreo || "Usuario" }}
+          <small>{{ etiquetaRol }}</small></span
+        >
       </div>
     </header>
 
-    <div v-if="mode === 'admin'" class="admin-layout">
-      <aside class="sidebar">
-        <p class="eyebrow">MENÚ PRINCIPAL</p>
+    <div v-if="modo === 'panel'" class="distribucion-panel">
+      <aside class="barra-lateral">
+        <p class="sobretitulo">MENÚ PRINCIPAL</p>
         <nav>
           <button
-            v-for="item in navItems"
+            v-for="item in elementosMenu"
             :key="item.id"
-            :class="{ active: item.id === adminView }"
-            @click="selectAdminView(item.id)"
+            :class="{ activo: item.id === vistaPanel }"
+            @click="seleccionarVistaPanel(item.id)"
           >
             <span><component :is="item.icon" /></span>{{ item.label }}
           </button>
         </nav>
 
-        <div class="sidebar-help">
-          <span class="help-icon"><CircleHelp /></span>
-          <strong>¿Necesitás ayuda?</strong>
-          <small>Estamos para acompañarte</small>
-          <button @click="notify('Centro de ayuda próximamente')">Ver centro de ayuda</button>
-        </div>
-
-        <button class="logout" @click="cerrarSesion()"><LogOut /> <span>Cerrar sesión</span></button>
+        <button class="cerrar-sesion" @click="cerrarSesion()">
+          <LogOut /> <span>Cerrar sesión</span>
+        </button>
       </aside>
 
-      <main class="content-area">
-        <div class="mobile-page-nav">
-          <button aria-label="Abrir menú" @click="menuMovil = true"><Menu /></button>
+      <main class="area-contenido">
+        <div class="navegacion-movil-pagina">
+          <button aria-label="Abrir menú" @click="menuMovil = true">
+            <Menu />
+          </button>
           <span>VetControl</span>
-          <button aria-label="Mi cuenta" @click="menuCuenta = !menuCuenta"><Users /></button>
         </div>
 
-        <AgendaPanel v-if="adminView === 'agenda'" @navigate="selectAdminView" />
-        <MascotasPanel v-else-if="adminView === 'pets'" @navigate="selectAdminView" />
-        <ClientesPanel v-else-if="adminView === 'clients'" @navigate="selectAdminView" />
-        <ConsultasPanel v-else-if="adminView === 'consultations'" @navigate="selectAdminView" />
+        <AgendaPanel
+          v-if="vistaPanel === 'agenda'"
+          @navegar="seleccionarVistaPanel"
+        />
+        <MascotasPanel
+          v-else-if="vistaPanel === 'mascotas'"
+          @navegar="seleccionarVistaPanel"
+        />
+        <ClientesPanel
+          v-else-if="vistaPanel === 'clientes'"
+          @navegar="seleccionarVistaPanel"
+        />
+        <ConsultasPanel
+          v-else-if="vistaPanel === 'consultas'"
+          @navegar="seleccionarVistaPanel"
+        />
         <ConfiguracionPanel v-else />
       </main>
     </div>
 
-    <!-- Cajón de navegación en pantallas chicas -->
-    <div v-if="menuMovil && mode === 'admin'" class="drawer-backdrop" @click.self="menuMovil = false">
-      <aside class="sidebar drawer">
-        <button class="drawer-close" aria-label="Cerrar menú" @click="menuMovil = false"><X /></button>
-        <p class="eyebrow">MENÚ PRINCIPAL</p>
+    <div
+      v-if="menuMovil && modo === 'panel'"
+      class="fondo-cajon"
+      @click.self="menuMovil = false"
+    >
+      <aside class="barra-lateral cajon">
+        <button
+          class="cerrar-cajon"
+          aria-label="Cerrar menú"
+          @click="menuMovil = false"
+        >
+          <X />
+        </button>
+        <p class="sobretitulo">MENÚ PRINCIPAL</p>
         <nav>
           <button
-            v-for="item in navItems"
+            v-for="item in elementosMenu"
             :key="item.id"
-            :class="{ active: item.id === adminView }"
-            @click="selectAdminView(item.id)"
+            :class="{ activo: item.id === vistaPanel }"
+            @click="seleccionarVistaPanel(item.id)"
           >
             <span><component :is="item.icon" /></span>{{ item.label }}
           </button>
         </nav>
-        <button class="logout" @click="cerrarSesion()"><LogOut /> <span>Cerrar sesión</span></button>
+        <button class="cerrar-sesion" @click="cerrarSesion()">
+          <LogOut /> <span>Cerrar sesión</span>
+        </button>
       </aside>
     </div>
 
-    <PortalCliente v-if="mode === 'client'" :key="portalKey" />
+    <PortalCliente
+      v-if="modo === 'cliente'"
+      :key="clavePortal"
+      ref="portalRef"
+    />
   </div>
 </template>
