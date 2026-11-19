@@ -71,7 +71,7 @@ Requiere **Node 22 o superior**
 
 ### Cómo ingresar
 
-1. Abrí el sistema en el navegador (enlace de prueba: `http://localhost:5173` mientras corre en local).
+1. Abrí el sistema en el navegador: en local `http://localhost:5173`, o la versión publicada en `https://vetcontrol-012.netlify.app`.
 2. Registrate desde `/registro`.
 3. El sistema te lleva automáticamente a donde corresponde:
    - Si sos veterinaria o veterinario, entrás al **panel interno**.
