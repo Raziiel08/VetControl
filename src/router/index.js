@@ -1,69 +1,66 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import { supabase } from '@/supabase'
+import { createRouter, createWebHistory } from "vue-router";
+import { supabase } from "@/supabase";
 
-// Todas las vistas se cargan bajo demanda (código por ruta).
-const router = createRouter({
+const enrutador = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
-      path: '/',
-      redirect: '/inicio',
+      path: "/",
+      redirect: "/inicio",
     },
     {
-      path: '/login',
-      name: 'login',
-      component: () => import('@/views/LoginView.vue'),
+      path: "/login",
+      name: "login",
+      component: () => import("@/views/LoginView.vue"),
     },
     {
-      path: '/registro',
-      name: 'registro',
-      component: () => import('@/views/RegistroView.vue'),
+      path: "/registro",
+      name: "registro",
+      component: () => import("@/views/RegistroView.vue"),
     },
     {
-      path: '/inicio',
-      name: 'inicio',
-      component: () => import('@/views/InicioView.vue'),
+      path: "/inicio",
+      name: "inicio",
+      component: () => import("@/views/InicioView.vue"),
       meta: { requiereAutenticacion: true },
     },
     {
-      path: '/productos',
-      name: 'productos',
-      component: () => import('@/views/ProductosView.vue'),
+      path: "/productos",
+      name: "productos",
+      component: () => import("@/views/ProductosView.vue"),
       meta: { requiereAutenticacion: true },
     },
     {
-      path: '/cambiar-clave',
-      name: 'cambiar-clave',
-      component: () => import('@/views/CambiarClaveView.vue'),
+      path: "/cambiar-clave",
+      name: "cambiar-clave",
+      component: () => import("@/views/CambiarClaveView.vue"),
       meta: { requiereAutenticacion: true },
     },
     {
-      path: '/:pathMatch(.*)*',
-      name: 'no-encontrada',
-      component: () => import('@/views/NotFoundView.vue'),
+      path: "/:pathMatch(.*)*",
+      name: "no-encontrada",
+      component: () => import("@/views/NotFoundView.vue"),
     },
   ],
-})
+});
 
-router.beforeEach(async (to) => {
+enrutador.beforeEach(async (ruta) => {
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
+    data: { session: sesion },
+  } = await supabase.auth.getSession();
 
-  const paginasPublicas = ['login', 'registro']
-  const esPublica = paginasPublicas.includes(to.name)
+  const paginasPublicas = ["login", "registro"];
+  const esPublica = paginasPublicas.includes(ruta.name);
 
-  // Si la ruta requiere autenticación y no hay sesión, ir al login
-  if (to.meta.requiereAutenticacion && !session) {
-    return { name: 'login' }
+  if (ruta.meta.requiereAutenticacion && !sesion) {
+    return { name: "login" };
   }
 
-  // Si el usuario ya está conectado e intenta ir a login o registro, ir a inicio
-  if (session && esPublica) {
-    return { name: 'inicio' }
+  if (sesion && esPublica) {
+    return { name: "inicio" };
   }
 
-  return true
-})
+  return true;
+});
 
-export default router
+export default enrutador;

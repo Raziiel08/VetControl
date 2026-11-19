@@ -44,12 +44,12 @@ const EXTENSIONES_VALIDAS = new Set([
   "co.uk",
 ]);
 
-export function validarEmail(email) {
-  if (!email || typeof email !== "string") {
+export function validarCorreo(correo) {
+  if (!correo || typeof correo !== "string") {
     return { valido: false, error: "Por favor ingresá tu correo electrónico" };
   }
 
-  const correoLimpio = email.trim().toLowerCase();
+  const correoLimpio = correo.trim().toLowerCase();
   const partes = correoLimpio.split("@");
 
   if (partes.length !== 2) {
@@ -101,22 +101,48 @@ export function validarEmail(email) {
     };
   }
 
-  return { valido: true, email: correoLimpio };
+  return { valido: true, correo: correoLimpio };
 }
 
-export function validarPassword(password) {
-  if (!password || typeof password !== "string") {
+const DOMINIOS_CONOCIDOS = new Set([
+  "gmail.com",
+  "hotmail.com",
+  "outlook.com",
+  "yahoo.com",
+  "icloud.com",
+  "live.com",
+  "aol.com",
+  "protonmail.com",
+  "mail.com",
+  "gmx.com",
+  "yandex.com",
+  "zoho.com",
+  "yahoo.com.ar",
+  "hotmail.com.ar",
+  "live.com.ar",
+  "outlook.com.ar",
+  "gmail.com.ar",
+]);
+
+export function esDominioConocido(correo) {
+  if (!correo || typeof correo !== "string") return false;
+  const dominio = correo.trim().toLowerCase().split("@")[1];
+  return DOMINIOS_CONOCIDOS.has(dominio);
+}
+
+export function validarClave(clave) {
+  if (!clave || typeof clave !== "string") {
     return { valido: false, error: "Por favor ingresá una contraseña" };
   }
 
-  if (/^\s/.test(password)) {
+  if (/^\s/.test(clave)) {
     return {
       valido: false,
       error: "La contraseña no puede comenzar con un espacio",
     };
   }
 
-  if (password.trim().length < 6) {
+  if (clave.trim().length < 6) {
     return {
       valido: false,
       error:
