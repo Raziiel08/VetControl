@@ -909,3 +909,185 @@ create unique index if not exists clientes_vet_email_unique
   where email is not null and trim(email) <> '';
 
 grant select, insert, update, delete on all tables in schema public to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Tienda del portal del cliente: compra de productos con stock
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.pedidos (
+  id uuid primary key default gen_random_uuid(),
+  veterinaria_id uuid not null default public.obtener_mi_veterinaria_id()
+    references public.veterinarias(id) on delete cascade,
+  cliente_id uuid not null references public.clientes(id) on delete cascade,
+  total numeric not null default 0 check (total >= 0),
+  estado text not null default 'Pendiente'
+    check (estado in ('Pendiente', 'Confirmado', 'Entregado', 'Cancelado')),
+  creado_en timestamptz not null default now()
+);
+
+create table if not exists public.pedido_detalles (
+  id uuid primary key default gen_random_uuid(),
+  pedido_id uuid not null references public.pedidos(id) on delete cascade,
+  producto_id uuid not null references public.productos(id) on delete restrict,
+  cantidad integer not null check (cantidad > 0),
+  precio_unitario numeric not null check (precio_unitario >= 0)
+);
+
+alter table public.pedidos enable row level security;
+alter table public.pedido_detalles enable row level security;
+
+-- El cliente solo consulta sus propios pedidos; el equipo, los de su veterinaria.
+drop policy if exists "Pedidos: el cliente ve los suyos" on public.pedidos;
+create policy "Pedidos: el cliente ve los suyos" on public.pedidos
+for select to authenticated
+using (cliente_id = public.obtener_mi_cliente_id());
+
+drop policy if exists "Pedidos: el equipo ve los de su veterinaria" on public.pedidos;
+create policy "Pedidos: el equipo ve los de su veterinaria" on public.pedidos
+for select to authenticated
+using (
+  veterinaria_id = public.obtener_mi_veterinaria_id()
+  and public.obtener_mi_rol() in ('admin_veterinaria', 'veterinario')
+);
+
+-- El detalle se lee siguiendo las reglas del pedido al que pertenece.
+drop policy if exists "Detalle de pedido: se lee según el pedido" on public.pedido_detalles;
+create policy "Detalle de pedido: se lee según el pedido" on public.pedido_detalles
+for select to authenticated
+using (
+  pedido_id in (
+    select p.id
+      from public.pedidos p
+     where p.cliente_id = public.obtener_mi_cliente_id()
+        or (
+          p.veterinaria_id = public.obtener_mi_veterinaria_id()
+          and public.obtener_mi_rol() in ('admin_veterinaria', 'veterinario')
+        )
+  )
+);
+
+-- Los clientes ven los productos activos de su veterinaria para poder comprarlos.
+drop policy if exists "Clientes ven productos para comprar" on public.productos;
+create policy "Clientes ven productos para comprar" on public.productos
+for select to authenticated
+using (
+  veterinaria_id = public.obtener_mi_veterinaria_id()
+  and public.obtener_mi_rol() = 'cliente'
+  and activo
+);
+
+-- La compra se hace en una sola llamada: valida el stock, guarda el pedido y
+-- descuenta las unidades mediante un movimiento de stock tipo "Venta".
+create or replace function public.registrar_compra(p_items jsonb)
+returns uuid
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_vet uuid := public.obtener_mi_veterinaria_id();
+  v_cliente uuid := public.obtener_mi_cliente_id();
+  v_rol text := public.obtener_mi_rol();
+  v_pedido uuid;
+  v_total numeric := 0;
+  item record;
+  v_producto record;
+begin
+  if v_rol <> 'cliente' then
+    raise exception 'Solo los clientes pueden realizar compras';
+  end if;
+
+  if v_cliente is null then
+    raise exception 'Tu cuenta no está vinculada a una ficha de cliente';
+  end if;
+
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'Tu carrito está vacío';
+  end if;
+
+  insert into public.pedidos (veterinaria_id, cliente_id)
+  values (v_vet, v_cliente)
+  returning id into v_pedido;
+
+  for item in
+    select *
+      from jsonb_to_recordset(p_items) as x(producto_id uuid, cantidad integer)
+  loop
+    if item.producto_id is null or item.cantidad is null or item.cantidad <= 0 then
+      raise exception 'La cantidad de cada producto debe ser mayor a cero';
+    end if;
+
+    select id, nombre, precio, stock, activo, veterinaria_id
+      into v_producto
+      from public.productos
+     where id = item.producto_id
+       for update;
+
+    if not found or v_producto.veterinaria_id <> v_vet then
+      raise exception 'Un producto del carrito no está disponible';
+    end if;
+
+    if not v_producto.activo then
+      raise exception 'El producto % ya no está disponible', v_producto.nombre;
+    end if;
+
+    if v_producto.stock < item.cantidad then
+      raise exception 'Stock insuficiente para %: quedan % unidades',
+        v_producto.nombre, v_producto.stock;
+    end if;
+
+    insert into public.pedido_detalles (pedido_id, producto_id, cantidad, precio_unitario)
+    values (v_pedido, item.producto_id, item.cantidad, v_producto.precio);
+
+    insert into public.movimientos_stock
+      (veterinaria_id, producto_id, tipo, cantidad, precio_unitario, motivo)
+    values
+      (v_vet, item.producto_id, 'Venta', item.cantidad, v_producto.precio,
+       'Venta desde el portal del cliente');
+
+    v_total := v_total + (v_producto.precio * item.cantidad);
+  end loop;
+
+  update public.pedidos set total = v_total where id = v_pedido;
+
+  return v_pedido;
+end;
+$function$;
+
+grant execute on function public.registrar_compra(jsonb) to authenticated;
+
+create index if not exists pedidos_cliente_idx
+  on public.pedidos (cliente_id, creado_en);
+create index if not exists pedidos_veterinaria_idx
+  on public.pedidos (veterinaria_id, creado_en);
+create index if not exists pedido_detalles_pedido_idx
+  on public.pedido_detalles (pedido_id);
+
+grant select, insert, update, delete on public.pedidos, public.pedido_detalles to authenticated;
+
+-- Habilita la actualización en tiempo real de los estados de los pedidos.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'pedidos'
+  ) then
+    alter publication supabase_realtime add table public.pedidos;
+  end if;
+end
+$$;
+
+drop policy if exists "Pedidos: el equipo actualiza el estado" on public.pedidos;
+create policy "Pedidos: el equipo actualiza el estado" on public.pedidos
+for update to authenticated
+using (
+  veterinaria_id = public.obtener_mi_veterinaria_id()
+  and public.obtener_mi_rol() in ('admin_veterinaria', 'veterinario')
+)
+with check (
+  veterinaria_id = public.obtener_mi_veterinaria_id()
+  and public.obtener_mi_rol() in ('admin_veterinaria', 'veterinario')
+);

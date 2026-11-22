@@ -10,14 +10,17 @@ import {
   Info,
   LogOut,
   Menu,
+  Package,
   PawPrint,
   Plus,
+  ShoppingBag,
+  ShoppingCart,
   Stethoscope,
   Syringe,
   TriangleAlert,
   X,
 } from "lucide-vue-next";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { supabase } from "@/supabase";
 import { useUsuario } from "@/composables/useUsuario";
@@ -38,6 +41,13 @@ const mostrarReserva = ref(false);
 const pasoReserva = ref(1);
 const menuMovil = ref(false);
 
+const productosTienda = ref([]);
+const carrito = ref([]);
+const pedidosCliente = ref([]);
+const cargandoProductos = ref(false);
+const confirmandoCompra = ref(false);
+const mostrarCarrito = ref(false);
+
 const clienteId = ref(null);
 const nombreCliente = ref("");
 const mascotas = ref([]);
@@ -48,6 +58,7 @@ const vacunasMascota = ref([]);
 const cargando = ref(true);
 const vinculando = ref(false);
 const errorPortal = ref("");
+let canalPedidos = null;
 
 const mascotaSeleccionadaId = ref("");
 
@@ -107,6 +118,17 @@ const turnosPasados = computed(() =>
     ),
 );
 
+const totalCarrito = computed(() =>
+  carrito.value.reduce(
+    (suma, item) => suma + Number(item.precio) * item.cantidad,
+    0,
+  ),
+);
+
+const unidadesCarrito = computed(() =>
+  carrito.value.reduce((suma, item) => suma + item.cantidad, 0),
+);
+
 function iniciales(nombre = "?") {
   return nombre
     .split(" ")
@@ -133,7 +155,12 @@ function edadDe(fechaNacimiento) {
 }
 
 function colorEstado(estado) {
-  if (estado === "Confirmado" || estado === "Atendido") return "verde";
+  if (
+    estado === "Confirmado" ||
+    estado === "Atendido" ||
+    estado === "Entregado"
+  )
+    return "verde";
   if (estado === "Cancelado") return "rojo";
   return "amarillo";
 }
@@ -203,8 +230,10 @@ async function cargar() {
     if (!id) {
       mascotas.value = [];
       turnos.value = [];
+      suscribirPedidos(null);
       return;
     }
+    suscribirPedidos(id);
 
     const { data: filaCliente, error: errCliente } = await supabase
       .from("clientes")
@@ -254,6 +283,8 @@ async function cargar() {
     } else {
       turnos.value = [];
     }
+
+    await Promise.all([cargarProductos(), cargarPedidos()]);
   } catch (e) {
     errorPortal.value = traducirError(e.message);
   } finally {
@@ -402,6 +433,112 @@ async function cancelarTurno(turno) {
   }
 }
 
+async function cargarProductos() {
+  cargandoProductos.value = true;
+  const { data, error } = await supabase
+    .from("productos")
+    .select("id, nombre, descripcion, precio, stock, activo, imagen_url")
+    .eq("activo", true)
+    .order("nombre");
+  if (!error) productosTienda.value = data || [];
+  cargandoProductos.value = false;
+}
+
+async function cargarPedidos() {
+  const { data, error } = await supabase
+    .from("pedidos")
+    .select(
+      "id, total, estado, creado_en, detalles:pedido_detalles(cantidad, precio_unitario, producto:productos(nombre))",
+    )
+    .order("creado_en", { ascending: false })
+    .limit(10);
+  if (!error) pedidosCliente.value = data || [];
+}
+
+function suscribirPedidos(clienteIdPedido) {
+  if (canalPedidos) {
+    supabase.removeChannel(canalPedidos);
+  }
+  if (!clienteIdPedido) return;
+
+  canalPedidos = supabase
+    .channel(`pedidos-cliente-${clienteIdPedido}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "pedidos",
+        filter: `cliente_id=eq.${clienteIdPedido}`,
+      },
+      cargarPedidos,
+    )
+    .subscribe();
+}
+
+function agregarAlCarrito(producto) {
+  const existente = carrito.value.find((i) => i.producto_id === producto.id);
+  if (existente) {
+    if (existente.cantidad >= producto.stock) {
+      notificar(`Solo hay ${producto.stock} unidades de ${producto.nombre}`);
+      return;
+    }
+    existente.cantidad += 1;
+    return;
+  }
+  carrito.value.push({
+    producto_id: producto.id,
+    nombre: producto.nombre,
+    precio: Number(producto.precio),
+    stock: producto.stock,
+    cantidad: 1,
+  });
+}
+
+function cambiarCantidad(item, delta) {
+  const nueva = item.cantidad + delta;
+  if (nueva < 1) {
+    quitarDelCarrito(item);
+    return;
+  }
+  if (nueva > item.stock) {
+    notificar(`Solo hay ${item.stock} unidades de ${item.nombre}`);
+    return;
+  }
+  item.cantidad = nueva;
+}
+
+function quitarDelCarrito(item) {
+  carrito.value = carrito.value.filter(
+    (i) => i.producto_id !== item.producto_id,
+  );
+}
+
+async function confirmarCompra() {
+  if (!carrito.value.length) return;
+  confirmandoCompra.value = true;
+  try {
+    const items = carrito.value.map((i) => ({
+      producto_id: i.producto_id,
+      cantidad: i.cantidad,
+    }));
+    const { data, error } = await supabase.rpc("registrar_compra", {
+      p_items: items,
+    });
+    if (error) throw error;
+
+    carrito.value = [];
+    mostrarCarrito.value = false;
+    notificar("Compra realizada correctamente. Retiralo en la veterinaria.");
+    await Promise.all([cargarProductos(), cargarPedidos()]);
+  } catch (e) {
+    notificar(traducirError(e.message));
+    await cargarProductos();
+  } finally {
+    confirmandoCompra.value = false;
+  }
+}
+
 async function cerrarSesion() {
   try {
     await salir();
@@ -410,7 +547,21 @@ async function cerrarSesion() {
   }
 }
 
-onMounted(cargar);
+function actualizarAlReactivar() {
+  if (document.visibilityState === "visible") {
+    cargar();
+  }
+}
+
+onMounted(() => {
+  cargar();
+  document.addEventListener("visibilitychange", actualizarAlReactivar);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("visibilitychange", actualizarAlReactivar);
+  if (canalPedidos) supabase.removeChannel(canalPedidos);
+});
 
 defineExpose({
   abrirMenu: () => {
@@ -448,6 +599,12 @@ defineExpose({
         >
           <CalendarDays /> <span>Mis turnos</span>
         </button>
+        <button
+          :class="{ activo: vistaCliente === 'productos' }"
+          @click="vistaCliente = 'productos'"
+        >
+          <ShoppingBag /> <span>Tienda</span>
+        </button>
       </nav>
       <button class="cerrar-sesion" @click="cerrarSesion()">
         <LogOut /> <span>Cerrar sesión</span>
@@ -474,6 +631,12 @@ defineExpose({
             @click="vistaCliente = 'turnos'"
           >
             <CalendarDays /> <span>Mis turnos</span>
+          </button>
+          <button
+            :class="{ activo: vistaCliente === 'productos' }"
+            @click="vistaCliente = 'productos'"
+          >
+            <ShoppingBag /> <span>Tienda</span>
           </button>
         </nav>
         <button
@@ -528,6 +691,15 @@ defineExpose({
               "
             >
               <CalendarDays /> <span>Mis turnos</span>
+            </button>
+            <button
+              :class="{ activo: vistaCliente === 'productos' }"
+              @click="
+                vistaCliente = 'productos';
+                menuMovil = false;
+              "
+            >
+              <ShoppingBag /> <span>Tienda</span>
             </button>
           </nav>
           <button class="cerrar-sesion" @click="cerrarSesion()">
@@ -794,6 +966,118 @@ defineExpose({
         </template>
       </section>
 
+      <section
+        v-else-if="vistaCliente === 'productos'"
+        class="pagina-cliente"
+      >
+        <div class="encabezado-pagina encabezado-cliente">
+          <div>
+            <p class="sobretitulo">TIENDA</p>
+            <h1>Productos</h1>
+            <p class="texto-atenuado">
+              Comprá lo que tengas disponible en tu veterinaria.
+            </p>
+          </div>
+          <button
+            class="boton-principal"
+            :disabled="!carrito.length"
+            @click="mostrarCarrito = true"
+          >
+            <ShoppingCart />
+            Ver carrito
+            <span class="insignia-conteo">{{ unidadesCarrito }}</span>
+          </button>
+        </div>
+
+        <div v-if="cargandoProductos" class="panel estado-vacio">
+          <p>Cargando productos...</p>
+        </div>
+
+        <div v-else-if="!productosTienda.length" class="panel estado-vacio">
+          <span class="icono-vacio"><ShoppingBag /></span>
+          <strong>No hay productos disponibles</strong>
+          <p>Consultá en tu veterinaria los productos que tenemos para vos.</p>
+        </div>
+
+        <div v-else class="cuadricula-productos-cliente">
+          <article
+            v-for="producto in productosTienda"
+            :key="producto.id"
+            class="tarjeta-producto-cliente"
+          >
+            <div
+              v-if="producto.imagen_url"
+              class="imagen-producto-cliente"
+              :style="{ backgroundImage: `url(${producto.imagen_url})` }"
+            ></div>
+            <div v-else class="imagen-producto-cliente sin-imagen">
+              <Package />
+            </div>
+            <div class="datos-producto-cliente">
+              <strong>{{ producto.nombre }}</strong>
+              <p v-if="producto.descripcion">{{ producto.descripcion }}</p>
+              <b>${{ Number(producto.precio).toFixed(2) }}</b>
+              <small :class="{ agotado: producto.stock <= 0 }">
+                {{
+                  producto.stock > 0
+                    ? `${producto.stock} disponibles`
+                    : "Sin stock"
+                }}
+              </small>
+            </div>
+            <button
+              class="boton-contorno"
+              :disabled="producto.stock <= 0"
+              @click="agregarAlCarrito(producto)"
+            >
+              <Plus />
+              {{
+                carrito.find((i) => i.producto_id === producto.id)
+                  ? "Agregado"
+                  : producto.stock <= 0
+                    ? "Sin stock"
+                    : "Agregar"
+              }}
+            </button>
+          </article>
+        </div>
+
+        <div class="titulo-seccion" style="margin-top: 30px">
+          <h2>Mis compras</h2>
+        </div>
+        <div v-if="!pedidosCliente.length" class="panel estado-vacio">
+          <p>Todavía no hiciste ninguna compra.</p>
+        </div>
+        <div v-else class="panel lista-reservas">
+          <div
+            v-for="pedido in pedidosCliente"
+            :key="pedido.id"
+            class="elemento-reserva"
+          >
+            <div class="bloque-fecha">
+              <strong>{{ pedido.creado_en.slice(8, 10) }}</strong>
+              <small>{{ mesCorto(pedido.creado_en.slice(0, 10)) }}</small>
+            </div>
+            <div>
+              <strong>${{ Number(pedido.total).toFixed(2) }}</strong>
+              <p>
+                {{
+                  pedido.detalles
+                    .map(
+                      (d) => `${d.cantidad} × ${d.producto?.nombre || "producto"}`,
+                    )
+                    .join(", ")
+                }}
+              </p>
+            </div>
+            <span class="estado" :class="colorEstado(pedido.estado)">{{
+              pedido.estado
+            }}</span>
+            <span></span>
+          </div>
+        </div>
+      </section>
+
       <section v-else class="pagina-cliente">
         <div class="encabezado-pagina">
           <div>
@@ -1025,6 +1309,86 @@ defineExpose({
                 : "Continuar"
             }}
             <ArrowRight />
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="mostrarCarrito"
+      class="fondo-modal"
+      @click.self="mostrarCarrito = false"
+    >
+      <section class="ventana-reserva">
+        <button
+          class="cerrar-modal"
+          aria-label="Cerrar"
+          @click="mostrarCarrito = false"
+        >
+          <X />
+        </button>
+        <p class="sobretitulo">TU CARRITO</p>
+        <h2>Revisá tu compra</h2>
+
+        <div v-if="!carrito.length" class="nota-modal">
+          Tu carrito está vacío. Agregá productos desde la tienda.
+        </div>
+
+        <div v-else class="lista-carrito">
+          <div v-for="item in carrito" :key="item.producto_id" class="fila-carrito">
+            <div class="datos-fila-carrito">
+              <strong>{{ item.nombre }}</strong>
+              <p>${{ item.precio.toFixed(2) }} c/u</p>
+            </div>
+            <div class="control-cantidad">
+              <button
+                aria-label="Restar"
+                @click="cambiarCantidad(item, -1)"
+              >
+                −
+              </button>
+              <span>{{ item.cantidad }}</span>
+              <button
+                aria-label="Sumar"
+                :disabled="item.cantidad >= item.stock"
+                @click="cambiarCantidad(item, 1)"
+              >
+                +
+              </button>
+            </div>
+            <b>${{ (item.precio * item.cantidad).toFixed(2) }}</b>
+            <button
+              class="menu-fila"
+              :aria-label="'Quitar ' + item.nombre"
+              @click="quitarDelCarrito(item)"
+            >
+              <X />
+            </button>
+          </div>
+
+          <div class="total-carrito">
+            <span>Total</span>
+            <strong>${{ totalCarrito.toFixed(2) }}</strong>
+          </div>
+
+          <p class="nota-modal">
+            El stock se descuenta al confirmar. Retiralo en la veterinaria.
+          </p>
+        </div>
+
+        <div class="acciones-modal">
+          <button class="boton-contorno" @click="mostrarCarrito = false">
+            Seguir comprando
+          </button>
+          <button
+            class="boton-principal"
+            :disabled="confirmandoCompra || !carrito.length"
+            @click="confirmarCompra"
+          >
+            {{
+              confirmandoCompra ? "Procesando..." : "Confirmar compra"
+            }}
+            <Check />
           </button>
         </div>
       </section>

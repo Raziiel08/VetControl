@@ -1,4 +1,4 @@
-# VetControl
+﻿# VetControl
 
 ## ¿Qué es?
 
@@ -22,6 +22,7 @@ Está hecha con **Vue 3 + Vite** y **Supabase** (base de datos, ingreso con usua
 - Reservar turnos online eligiendo servicio y horario.
 - Ver las mascotas propias y sus turnos.
 - Vincular la cuenta con la ficha de cliente.
+- Comprar productos con stock desde la Tienda (carrito y confirmación de compra).
 - Usar el menú lateral desde el celular.
 
 ## Cómo sumar veterinarios a una clínica
@@ -35,6 +36,8 @@ La primera persona que se registra con un nombre de veterinaria queda como **adm
 
 Registrarse otra vez con el mismo nombre de veterinaria **no une a nadie**: crea una clínica nueva.
 
+En el registro se aceptan correos de proveedores conocidos (gmail, hotmail, outlook, yahoo, iCloud, live, aol, protonmail, mail.com, gmx, yandex, zoho y sus variantes `.com.ar`). No se aceptan dominios propios ni otros dominios, incluso si terminan en `.com`. El mensaje de error es: *"Usá un correo de gmail, hotmail, outlook, yahoo, iCloud, etc."*
+
 ## Puesta en marcha
 
 Creá un archivo `.env` en la raíz con los datos de tu proyecto Supabase:
@@ -44,6 +47,7 @@ VITE_SUPABASE_URL=https://TU-PROYECTO.supabase.co
 VITE_SUPABASE_ANON_KEY=TU-CLAVE-PUBLICABLE
 ```
 
+La app también acepta `VITE_SUPABASE_PUBLISHABLE_KEY` en lugar de `VITE_SUPABASE_ANON_KEY`.
 
 ```bash
 npm install
@@ -71,7 +75,7 @@ Requiere **Node 22 o superior**
 
 ### Cómo ingresar
 
-1. Abrí el sistema en el navegador (enlace de prueba: `http://localhost:5173` mientras corre en local).
+1. Abrí el sistema en el navegador: en local `http://localhost:5173`, o la versión publicada en `https://vetcontrol-012.netlify.app`.
 2. Registrate desde `/registro`.
 3. El sistema te lleva automáticamente a donde corresponde:
    - Si sos veterinaria o veterinario, entrás al **panel interno**.
@@ -100,6 +104,7 @@ Requiere **Node 22 o superior**
 - Ver sus mascotas y su historial (consultas y vacunas).
 - Ver sus turnos próximos y anteriores.
 - Vincular su cuenta con la ficha de cliente.
+- Comprar productos con stock desde la Tienda (carrito y confirmación de compra).
 
 ### Cómo completar la tarea principal
 

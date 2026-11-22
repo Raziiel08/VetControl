@@ -13,7 +13,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-vue-next";
-import { onMounted, ref, computed } from "vue";
+import { onMounted, onUnmounted, ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { supabase } from "@/supabase";
 import { useUsuario } from "@/composables/useUsuario";
@@ -142,6 +142,32 @@ async function cargarMovimientos() {
   }
   movimientosDisponibles.value = true;
   movimientos.value = data || [];
+}
+
+const pedidos = ref([]);
+const cargandoPedidos = ref(false);
+let canalPedidos = null;
+
+async function cargarPedidos() {
+  cargandoPedidos.value = true;
+  const { data, error } = await supabase
+    .from('pedidos')
+    .select('id, total, estado, creado_en, cliente:clientes(nombre_completo, email), detalles:pedido_detalles(cantidad, precio_unitario, producto:productos(nombre))')
+    .order('creado_en', { ascending: false })
+    .limit(30);
+  if (!error) pedidos.value = data || [];
+  cargandoPedidos.value = false;
+}
+
+async function cambiarEstadoPedido(pedido, nuevoEstado) {
+  const { data, error } = await supabase
+    .from('pedidos')
+    .update({ estado: nuevoEstado })
+    .eq('id', pedido.id)
+    .select('id, estado')
+    .single();
+  if (error) { alert(traducirError(error.message)); return; }
+  pedido.estado = data.estado;
 }
 
 function abrirMovimiento() {
@@ -434,10 +460,39 @@ function cancelarEdicion() {
   errorMensaje.value = "";
 }
 
+function suscribirPedidos() {
+  if (canalPedidos) {
+    supabase.removeChannel(canalPedidos);
+  }
+
+  canalPedidos = supabase
+    .channel("pedidos-administracion")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "pedidos" },
+      cargarPedidos,
+    )
+    .subscribe();
+}
+
+function actualizarAlReactivar() {
+  if (document.visibilityState === "visible") {
+    cargarPedidos();
+  }
+}
+
 onMounted(() => {
   cargar();
   cargarProductos();
   cargarMovimientos();
+  cargarPedidos();
+  suscribirPedidos();
+  document.addEventListener("visibilitychange", actualizarAlReactivar);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("visibilitychange", actualizarAlReactivar);
+  if (canalPedidos) supabase.removeChannel(canalPedidos);
 });
 </script>
 
@@ -844,7 +899,7 @@ onMounted(() => {
                   </span>
                 </td>
                 <td>
-                  {{ mov.tipo === "Entrada" ? "+" : "−" }}{{ mov.cantidad }}
+                  {{ mov.tipo === "Entrada" ? "+" : " - " }}{{ mov.cantidad }}
                 </td>
                 <td>
                   {{
@@ -853,7 +908,74 @@ onMounted(() => {
                       : `$${Number(mov.precio_unitario).toFixed(2)}`
                   }}
                 </td>
-                <td class="descripcion-producto">{{ mov.motivo || "—" }}</td>
+                <td>{{ mov.motivo || "—" }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel movimientos-panel">
+        <div class="encabezado-panel">
+          <div>
+            <p class="sobretitulo">VENTAS</p>
+            <h2>Pedidos de clientes</h2>
+            <p class="texto-atenuado">
+              Compras realizadas desde el portal del cliente.
+            </p>
+          </div>
+        </div>
+
+        <div v-if="cargandoPedidos" class="estado-vacio">
+          <p>Cargando pedidos...</p>
+        </div>
+
+        <div v-else-if="!pedidos.length" class="estado-vacio">
+          <span class="icono-vacio"><ClipboardList /></span>
+          <strong>No hay pedidos registrados</strong>
+        </div>
+
+        <div v-else class="tabla-adaptable">
+          <table class="tabla-productos">
+            <thead>
+              <tr>
+                <th>FECHA</th>
+                <th>CLIENTE</th>
+                <th>PRODUCTOS</th>
+                <th>TOTAL</th>
+                <th>ESTADO</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="pedido in pedidos" :key="pedido.id">
+                <td>{{ fechaMovimiento(pedido.creado_en) }}</td>
+                <td>
+                  <strong class="titulo-producto">{{
+                    pedido.cliente?.nombre_completo || "Cliente"
+                  }}</strong>
+                  <small class="descripcion-producto">{{
+                    pedido.cliente?.email || ""
+                  }}</small>
+                </td>
+                <td>
+                  <small class="descripcion-producto">{{
+                    pedido.detalles
+                      .map((d) => `${d.cantidad} × ${d.producto?.nombre}`)
+                      .join(", ")
+                  }}</small>
+                </td>
+                <td>${{ Number(pedido.total).toFixed(2) }}</td>
+                <td>
+                  <select
+                    :value="pedido.estado"
+                    @change="cambiarEstadoPedido(pedido, $event.target.value)"
+                  >
+                    <option value="Pendiente">Pendiente</option>
+                    <option value="Confirmado">Confirmado</option>
+                    <option value="Entregado">Entregado</option>
+                    <option value="Cancelado">Cancelado</option>
+                  </select>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -1373,3 +1495,4 @@ onMounted(() => {
   }
 }
 </style>
+

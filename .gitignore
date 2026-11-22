@@ -1,16 +1,3 @@
 node_modules/
-
 .env
-.env.*
-!.env.example
-
 dist/
-*.local
-
-supabase/.temp/
-supabase/.branches/
-
-.vscode/
-.idea/
-.DS_Store
-*.log

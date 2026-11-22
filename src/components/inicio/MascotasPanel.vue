@@ -1,7 +1,6 @@
 <script setup>
 import {
   ArrowRight,
-  ChevronDown,
   PawPrint,
   Pencil,
   Plus,
@@ -333,9 +332,6 @@ onMounted(cargar);
         <span><Search /></span>
         <input v-model="busqueda" placeholder="Buscar por nombre o dueño" />
       </label>
-      <button class="boton-filtro" @click="busqueda.value = ''">
-        Limpiar <span><ChevronDown /></span>
-      </button>
     </div>
 
     <div class="tabla-mascotas panel">

@@ -47,9 +47,9 @@ async function registrarse() {
     mensaje.value = validacionCorreo.error;
     return;
   }
-  if (esCliente.value && !esDominioConocido(validacionCorreo.correo)) {
+  if (!esDominioConocido(validacionCorreo.correo)) {
     mensaje.value =
-      "Usá un correo real (gmail, hotmail, outlook, yahoo, etc.).";
+      "Usá un correo de gmail, hotmail, outlook, yahoo, iCloud, etc.";
     return;
   }
 
