@@ -1091,3 +1091,65 @@ with check (
   veterinaria_id = public.obtener_mi_veterinaria_id()
   and public.obtener_mi_rol() in ('admin_veterinaria', 'veterinario')
 );
+
+-- Los turnos solo se reservan dentro del horario de atención de la veterinaria.
+create or replace function public.validar_horario_atencion()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_horarios jsonb;
+  v_clave text;
+  v_texto text;
+  v_ini time;
+  v_fin time;
+begin
+  if new.estado = 'Cancelado' then
+    return new;
+  end if;
+
+  select horarios into v_horarios
+    from public.veterinarias
+   where id = new.veterinaria_id;
+
+  if v_horarios is null then
+    return new;
+  end if;
+
+  v_clave := case extract(dow from new.fecha)::int
+    when 0 then 'domingos'
+    when 6 then 'sabados'
+    else 'lunes_viernes'
+  end;
+
+  v_texto := coalesce(v_horarios->>v_clave, '');
+  if v_texto is null or lower(btrim(v_texto)) = '' then
+    return new;
+  end if;
+
+  if lower(btrim(v_texto)) = 'cerrado' then
+    raise exception 'La veterinaria está cerrada ese día. Elegí otra fecha.';
+  end if;
+
+  if btrim(v_texto) !~ '^\d{2}:\d{2}\s*-\s*\d{2}:\d{2}$' then
+    return new;
+  end if;
+
+  v_ini := btrim(split_part(v_texto, '-', 1))::time;
+  v_fin := btrim(split_part(v_texto, '-', 2))::time;
+
+  if new.hora_inicio < v_ini or new.hora_fin > v_fin then
+    raise exception 'Ese turno está fuera del horario de atención (%)', v_texto;
+  end if;
+
+  return new;
+end;
+$function$;
+
+drop trigger if exists validar_horario_atencion on public.turnos;
+create trigger validar_horario_atencion
+before insert or update of fecha, hora_inicio, hora_fin, veterinaria_id
+on public.turnos
+for each row execute function public.validar_horario_atencion();

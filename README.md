@@ -116,6 +116,7 @@ Requiere **Node 22 o superior**
 5. **Paso 3:** revisá el resumen y tocá **"Solicitar turno"**.
 6. El turno queda creado en estado "Pendiente" y aparece en "Mis turnos".
 
+
 **Registrar una mascota y su vacuna (veterinaria):**
 1. Iniciá sesión con la cuenta de la veterinaria.
 2. Andá a **Clientes**, creá o elegí un cliente y agregá una mascota.

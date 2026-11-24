@@ -20,7 +20,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-vue-next";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { supabase } from "@/supabase";
 import { useUsuario } from "@/composables/useUsuario";
@@ -73,20 +73,36 @@ const reserva = ref({
 
 const hoyISO = isoLocal();
 
-const HORARIOS = [
-  "09:00",
-  "09:30",
-  "10:00",
-  "10:30",
-  "11:00",
-  "11:30",
-  "12:00",
-  "15:00",
-  "15:30",
-  "16:00",
-  "16:30",
-  "17:00",
-];
+// Los mismos horarios que edita la veterinaria en Configuración.
+const horariosVet = ref({
+  lunes_viernes: "09:00 - 18:00",
+  sabados: "09:00 - 13:00",
+  domingos: "Cerrado",
+});
+
+function claveHorario(fechaISO) {
+  const dia = new Date(fechaISO + "T12:00:00").getDay(); // 0 = domingo, 6 = sábado
+  if (dia === 0) return "domingos";
+  if (dia === 6) return "sabados";
+  return "lunes_viernes";
+}
+
+function rangoAtencion(fechaISO) {
+  if (!fechaISO) return null;
+  const texto = String(horariosVet.value[claveHorario(fechaISO)] || "").trim();
+  if (!texto || texto.toLowerCase() === "cerrado") return null;
+  const partes = texto.split("-").map((p) => p.trim());
+  return { ini: partes[0] || "09:00", fin: partes[1] || "18:00" };
+}
+
+function aMinutos(hora) {
+  const [h, m] = String(hora).split(":").map(Number);
+  return h * 60 + m;
+}
+
+function minutosAhora(total) {
+  return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
 
 const mascotaSeleccionada = computed(
   () =>
@@ -185,14 +201,46 @@ function mesCorto(iso) {
 }
 
 const horaFinTurno = computed(() => {
+  if (!reserva.value.hora) return "—";
   const servicio = servicios.value.find(
     (s) => s.id === reserva.value.servicioId,
   );
   const duracion = servicio?.duracion_minutos || 30;
-  const [h, m] = reserva.value.hora.split(":").map(Number);
-  const minutosTotales = h * 60 + m + duracion;
-  return `${String(Math.floor(minutosTotales / 60) % 24).padStart(2, "0")}:${String(minutosTotales % 60).padStart(2, "0")}`;
+  return minutosAhora(aMinutos(reserva.value.hora) + duracion);
 });
+
+const esDiaCerrado = computed(
+  () => Boolean(reserva.value.fecha) && !rangoAtencion(reserva.value.fecha),
+);
+
+const rangoElegido = computed(() => rangoAtencion(reserva.value.fecha));
+
+// Arma los turnos de 30 en 30 minutos dentro del horario de atención.
+// Un turno entra solo si termina antes del cierre.
+const horariosDisponibles = computed(() => {
+  const rango = rangoElegido.value;
+  if (!rango) return [];
+  const servicio = servicios.value.find(
+    (s) => s.id === reserva.value.servicioId,
+  );
+  const duracion = servicio?.duracion_minutos || 30;
+  const desde = aMinutos(rango.ini);
+  const hasta = aMinutos(rango.fin);
+  const resultado = [];
+  for (let m = desde; m + duracion <= hasta; m += 30) {
+    resultado.push(minutosAhora(m));
+  }
+  return resultado;
+});
+
+watch(
+  () => [reserva.value.fecha, reserva.value.servicioId, horariosVet.value],
+  () => {
+    if (!horariosDisponibles.value.includes(reserva.value.hora)) {
+      reserva.value.hora = horariosDisponibles.value[0] || "";
+    }
+  },
+);
 
 async function cargar() {
   cargando.value = true;
@@ -243,6 +291,21 @@ async function cargar() {
       .maybeSingle();
     if (!errCliente) nombreCliente.value = filaCliente?.nombre_completo || "";
     const veterinariaCliente = filaCliente?.veterinaria_id || null;
+
+    if (veterinariaCliente) {
+      const { data: filaVet, error: errHorarios } = await supabase
+        .from("veterinarias")
+        .select("horarios")
+        .eq("id", veterinariaCliente)
+        .maybeSingle();
+      if (
+        !errHorarios &&
+        filaVet?.horarios &&
+        typeof filaVet.horarios === "object"
+      ) {
+        horariosVet.value = { ...horariosVet.value, ...filaVet.horarios };
+      }
+    }
 
     let consultaServicios = supabase
       .from("servicios")
@@ -375,6 +438,16 @@ function siguientePasoReserva() {
       errorReserva.value = "Elegí una fecha.";
       return;
     }
+    if (esDiaCerrado.value) {
+      errorReserva.value =
+        "La veterinaria está cerrada ese día. Elegí otra fecha.";
+      return;
+    }
+    if (!horariosDisponibles.value.includes(reserva.value.hora)) {
+      errorReserva.value =
+        "Elegí un horario dentro del horario de atención.";
+      return;
+    }
   }
   if (pasoReserva.value < 3) {
     pasoReserva.value += 1;
@@ -387,6 +460,13 @@ async function guardarReserva() {
   guardando.value = true;
   errorReserva.value = "";
   try {
+    if (
+      esDiaCerrado.value ||
+      !horariosDisponibles.value.includes(reserva.value.hora)
+    ) {
+      throw new Error("Ese horario está fuera del horario de atención.");
+    }
+
     const { data: veterinariaId, error: errVet } = await supabase.rpc(
       "obtener_mi_veterinaria_id",
     );
@@ -1247,17 +1327,28 @@ defineExpose({
             Fecha
             <input v-model="reserva.fecha" type="date" :min="hoyISO" />
           </label>
-          <div class="etiqueta-hora">Horarios disponibles</div>
-          <div class="opciones-hora">
-            <button
-              v-for="hora in HORARIOS"
-              :key="hora"
-              :class="{ seleccionado: reserva.hora === hora }"
-              @click="reserva.hora = hora"
-            >
-              {{ hora }}
-            </button>
-          </div>
+          <p v-if="esDiaCerrado" class="error-modal">
+            La veterinaria está cerrada ese día. Elegí otra fecha.
+          </p>
+          <template v-else-if="rangoElegido">
+            <p class="texto-atenuado">
+              Atención de {{ rangoElegido.ini }} a {{ rangoElegido.fin }}
+            </p>
+            <div class="etiqueta-hora">Horarios disponibles</div>
+            <div v-if="!horariosDisponibles.length" class="error-modal">
+              No hay turnos disponibles en ese rango horario.
+            </div>
+            <div v-else class="opciones-hora">
+              <button
+                v-for="hora in horariosDisponibles"
+                :key="hora"
+                :class="{ seleccionado: reserva.hora === hora }"
+                @click="reserva.hora = hora"
+              >
+                {{ hora }}
+              </button>
+            </div>
+          </template>
         </div>
 
         <div v-else class="resumen-solicitud">

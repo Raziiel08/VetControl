@@ -149,6 +149,12 @@ async function guardar() {
     notificar("El teléfono solo puede tener números");
     return;
   }
+  for (const dia of ["lunes_viernes", "sabados", "domingos"]) {
+    if (!esCerrado(dia) && horaInicio(dia) >= horaFin(dia)) {
+      notificar("La hora de apertura debe ser menor a la de cierre.");
+      return;
+    }
+  }
 
   guardando.value = true;
   try {
